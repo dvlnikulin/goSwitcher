@@ -1,0 +1,40 @@
+# Бинарные файлы и сборки
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Сгенерированные файлы ресурсов (rsrc)
+*.syso
+
+# Огромные словари для обучения (чтобы не забить репозиторий на гигабайт)
+words_ru.txt
+words_en.txt
+
+# Файл с весами нейросети (генерируется локально через --learn)
+model.json
+
+# Локальные пользовательские настройки и логи
+settings.json
+*.log
+
+# Папка с результатами компиляции Inno Setup (если собираешь в папку проекта)
+Output/
+*_Setup.exe
+
+# Стандартные файлы Go
+vendor/
+go.work
+go.work.sum
+
+# Системные файлы Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Файлы IDE (VS Code, Zed, etc)
+.vscode/
+.idea/
+*.swp

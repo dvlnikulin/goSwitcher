@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Настройки GoSwitcher</title>
+    <style>
+        body {
+            background-color: #2b2b2b;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background-color: #333333;
+            padding: 30px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        h2 {
+            margin-top: 0;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #444;
+            padding-bottom: 15px;
+        }
+        h2 span { margin-left: 10px; }
+        .setting-group { margin-bottom: 25px; }
+        label { font-weight: bold; display: block; margin-bottom: 8px; }
+        .help-text { font-size: 0.85em; color: #a0a0a0; margin-top: 5px; }
+        
+        input[type="text"], textarea {
+            width: 100%;
+            background-color: #222;
+            border: 1px solid #555;
+            color: #fff;
+            padding: 10px;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+        textarea { resize: vertical; height: 100px; }
+        
+        .range-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        input[type="range"] { flex-grow: 1; margin-right: 15px; }
+        .threshold-val { font-weight: bold; color: #3498db; }
+        
+        button {
+            background-color: #0078d7;
+            color: #fff;
+            border: none;
+            padding: 12px 20px;
+            width: 100%;
+            font-size: 1.1em;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #005a9e; }
+        
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .checkbox-container input {
+            margin-right: 10px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>⚙️ <span>Настройки GoSwitcher</span></h2>
+
+    <div class="setting-group">
+        <label class="checkbox-container">
+            <input type="checkbox" id="enable_ai">
+            Включить ИИ-автозамену при наборе текста
+        </label>
+        <div class="help-text">Автоматически исправляет опечатки при нажатии Пробела или Enter.</div>
+    </div>
+
+    <div class="setting-group">
+        <div class="range-container">
+            <label for="threshold">Порог уверенности ИИ:</label>
+            <span class="threshold-val" id="threshold-val">80%</span>
+        </div>
+        <input type="range" id="threshold" min="50" max="99" value="80">
+        <div class="help-text">Чем выше значение, тем реже программа будет ошибочно исправлять правильные слова.</div>
+    </div>
+
+    <div class="setting-group">
+        <label for="hotkey">Горячая клавиша ручной конвертации</label>
+        <input type="text" id="hotkey" value="pause">
+        <div class="help-text">Например: pause, f12, f9. Конвертирует последнее набранное слово.</div>
+    </div>
+
+    <div class="setting-group">
+        <label for="exceptions">Слова-исключения (по одному в строке)</label>
+        <textarea id="exceptions"></textarea>
+        <div class="help-text">Эти слова никогда не будут конвертироваться (пароли и цифры уже встроены).</div>
+    </div>
+
+    <div class="setting-group">
+        <label class="checkbox-container">
+            <input type="checkbox" id="autostart">
+            Запускать вместе с Windows (Автозагрузка)
+        </label>
+    </div>
+
+    <button id="saveBtn">Сохранить настройки</button>
+</div>
+
+<script>
+    const thresholdSlider = document.getElementById('threshold');
+    const thresholdVal = document.getElementById('threshold-val');
+
+    thresholdSlider.addEventListener('input', function() {
+        thresholdVal.textContent = this.value + '%';
+    });
+
+    fetch('/api/settings')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('enable_ai').checked = data.enable_ai;
+            document.getElementById('threshold').value = data.threshold;
+            document.getElementById('threshold-val').textContent = data.threshold + '%';
+            document.getElementById('hotkey').value = data.hotkey;
+            document.getElementById('exceptions').value = data.exceptions;
+            document.getElementById('autostart').checked = data.autostart;
+        })
+        .catch(err => console.error("Ошибка загрузки настроек", err));
+
+    document.getElementById('saveBtn').addEventListener('click', () => {
+        const settings = {
+            enable_ai: document.getElementById('enable_ai').checked,
+            threshold: parseInt(document.getElementById('threshold').value),
+            hotkey: document.getElementById('hotkey').value,
+            exceptions: document.getElementById('exceptions').value,
+            autostart: document.getElementById('autostart').checked
+        };
+
+        fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        }).then(() => {
+            const btn = document.getElementById('saveBtn');
+            btn.innerText = "Сохранено!";
+            setTimeout(() => btn.innerText = "Сохранить настройки", 2000);
+        });
+    });
+</script>
+
+</body>
+</html>
