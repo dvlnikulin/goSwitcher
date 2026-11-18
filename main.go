@@ -22,12 +22,29 @@ var htmlContent embed.FS
 //go:embed icon.ico
 var iconData []byte
 
+// ⚡ РАСШИРЕННАЯ СТРУКТУРА: Синхронизирована с Web UI
 type AppSettings struct {
-	EnableAI   bool   `json:"enable_ai"`
-	Threshold  int    `json:"threshold"`
-	Hotkey     string `json:"hotkey"`
-	Exceptions string `json:"exceptions"`
-	Autostart  bool   `json:"autostart"`
+	EnableAI     bool   `json:"enable_ai"`
+	Threshold    int    `json:"threshold"`
+	Hotkey       string `json:"hotkey"`
+	Exceptions   string `json:"exceptions"`
+	ForceConvert string `json:"force_convert"`
+	Blacklist    string `json:"blacklist"`
+	Autostart    bool   `json:"autostart"`
+
+	// Вкладка 2: Память
+	CustomVocab string `json:"custom_vocab"`
+
+	// Вкладка 3: Фильтры
+	BlockPaths bool `json:"block_paths"`
+	BlockFlags bool `json:"block_flags"`
+	UseMarkov  bool `json:"use_markov"`
+
+	// Вкладка 4: Advanced
+	LiveTypoEnabled bool `json:"live_typo_enabled"`
+	LiveTypoChar    int  `json:"live_typo_char"`
+	TrainingLimit   int  `json:"training_limit"`
+	LaplacePenalty  int  `json:"laplace_penalty"`
 }
 
 var (
@@ -52,17 +69,26 @@ func getAppDir() string {
 	return filepath.Dir(exePath)
 }
 
-func logDebug(format string, v ...interface{}) {
-	// Релизный режим: логирование отключено
-}
+func logDebug(format string, v ...interface{}) {}
 
 func loadSettings() {
+	// Значения по умолчанию (с учетом твоего окружения)
 	settings = AppSettings{
-		EnableAI:   true,
-		Threshold:  80,
-		Hotkey:     "pause",
-		Exceptions: "",
-		Autostart:  false,
+		EnableAI:        true,
+		Threshold:       80,
+		Hotkey:          "pause",
+		Exceptions:      "",
+		ForceConvert:    "",
+		Blacklist:       "zed.exe\ncode.exe\nwindowsterminal.exe\nwinbox.exe\nvmware.exe\nvirtualbox.exe\ngenshinimpact.exe\nbg3.exe\nbg3_dx11.exe",
+		Autostart:       false,
+		CustomVocab:     "kubectl\nmikrotik\nrouteros\nwinbox\nansible\ndocker\nnginx",
+		BlockPaths:      true,
+		BlockFlags:      true,
+		UseMarkov:       true,
+		LiveTypoEnabled: true,
+		LiveTypoChar:    4,
+		TrainingLimit:   60000,
+		LaplacePenalty:  1,
 	}
 	data, err := os.ReadFile(filepath.Join(getAppDir(), "settings.json"))
 	if err == nil {
@@ -91,8 +117,6 @@ func saveSettings(newSettings AppSettings) {
 }
 
 func main() {
-	enforceSingleInstance()
-
 	learnFlag := flag.Bool("learn", false, "Сгенерировать model.json из txt файлов")
 	flag.Parse()
 
@@ -100,6 +124,8 @@ func main() {
 		TrainModel("words_ru.txt", "words_en.txt")
 		os.Exit(0)
 	}
+
+	enforceSingleInstance()
 
 	loadSettings()
 	loadModel()
@@ -117,7 +143,6 @@ func startWebServer() {
 	})
 
 	http.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
-		// ФИКС: Используем switch вместо if/else для проверки r.Method
 		switch r.Method {
 		case http.MethodGet:
 			settingsMutex.RLock()

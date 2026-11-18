@@ -2,169 +2,376 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Настройки GoSwitcher</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoSwitcher Dashboard</title>
     <style>
-        body {
-            background-color: #2b2b2b;
-            color: #e0e0e0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 40px;
-            display: flex;
-            justify-content: center;
+        :root {
+            --bg-base: #181825;
+            --bg-surface: #1e1e2e;
+            --bg-surface-hover: #313244;
+            --primary: #89b4fa;
+            --primary-hover: #b4befe;
+            --text-main: #cdd6f4;
+            --text-muted: #a6adc8;
+            --border: #45475a;
+            --success: #a6e3a1;
         }
-        .container {
-            background-color: #333333;
-            padding: 30px;
-            border-radius: 8px;
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar Tabs */
+        .sidebar {
+            width: 250px;
+            background-color: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 0 20px 20px 20px;
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--primary);
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            text-align: left;
+            padding: 15px 20px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { background-color: var(--bg-surface-hover); color: var(--text-main); }
+        .tab-btn.active {
+            background-color: var(--bg-surface-hover);
+            color: var(--primary);
+            border-right: 3px solid var(--primary);
+        }
+
+        /* Content Area */
+        .content {
+            flex: 1;
+            padding: 30px 40px;
+            overflow-y: auto;
+            position: relative;
+        }
+        .tab-content { display: none; animation: fadeIn 0.3s ease; }
+        .tab-content.active { display: block; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Form Elements */
+        h2 { margin-top: 0; margin-bottom: 20px; font-weight: 500; }
+        .form-group { margin-bottom: 25px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        input[type="text"], input[type="number"], select, textarea {
             width: 100%;
             max-width: 600px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-        }
-        h2 {
-            margin-top: 0;
-            color: #ffffff;
-            display: flex;
-            align-items: center;
-            border-bottom: 1px solid #444;
-            padding-bottom: 15px;
-        }
-        h2 span { margin-left: 10px; }
-        .setting-group { margin-bottom: 25px; }
-        label { font-weight: bold; display: block; margin-bottom: 8px; }
-        .help-text { font-size: 0.85em; color: #a0a0a0; margin-top: 5px; }
-        
-        input[type="text"], textarea {
-            width: 100%;
-            background-color: #222;
-            border: 1px solid #555;
-            color: #fff;
-            padding: 10px;
-            border-radius: 4px;
-            box-sizing: border-box;
+            background-color: var(--bg-base);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 10px 12px;
+            border-radius: 6px;
             font-family: inherit;
+            font-size: 14px;
+            transition: border-color 0.2s;
         }
-        textarea { resize: vertical; height: 100px; }
-        
-        .range-container {
+        input[type="text"]:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        textarea { resize: vertical; min-height: 120px; font-family: 'Consolas', monospace; }
+
+        .checkbox-wrapper {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            gap: 10px;
+            cursor: pointer;
         }
-        input[type="range"] { flex-grow: 1; margin-right: 15px; }
-        .threshold-val { font-weight: bold; color: #3498db; }
-        
-        button {
-            background-color: #0078d7;
-            color: #fff;
+        input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
+
+        .slider-container { display: flex; align-items: center; gap: 15px; max-width: 600px; }
+        input[type="range"] { flex: 1; accent-color: var(--primary); }
+        .slider-val { background: var(--bg-surface); padding: 4px 8px; border-radius: 4px; font-size: 13px; min-width: 40px; text-align: center; }
+
+        /* Floating Save Bar */
+        .save-bar {
+            position: fixed;
+            bottom: 30px;
+            right: 40px;
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        .save-bar.visible { transform: translateY(0); opacity: 1; }
+
+        button.btn-save {
+            background-color: var(--primary);
+            color: var(--bg-base);
             border: none;
-            padding: 12px 20px;
-            width: 100%;
-            font-size: 1.1em;
-            border-radius: 4px;
-            cursor: pointer;
+            padding: 10px 24px;
+            border-radius: 6px;
             font-weight: bold;
-            transition: background 0.2s;
-        }
-        button:hover { background-color: #005a9e; }
-        
-        .checkbox-container {
-            display: flex;
-            align-items: center;
+            font-size: 14px;
             cursor: pointer;
+            transition: background-color 0.2s;
         }
-        .checkbox-container input {
-            margin-right: 10px;
-            width: 18px;
-            height: 18px;
+        button.btn-save:hover { background-color: var(--primary-hover); }
+
+        button.btn-action {
+            background-color: var(--bg-surface-hover);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            padding: 8px 16px;
+            border-radius: 6px;
             cursor: pointer;
+            margin-top: 10px;
         }
+        button.btn-action:hover { border-color: var(--primary); }
+
+        .toast { color: var(--success); font-size: 14px; font-weight: 500; display: none; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>⚙️ <span>Настройки GoSwitcher</span></h2>
-
-    <div class="setting-group">
-        <label class="checkbox-container">
-            <input type="checkbox" id="enable_ai">
-            Включить ИИ-автозамену при наборе текста
-        </label>
-        <div class="help-text">Автоматически исправляет опечатки при нажатии Пробела или Enter.</div>
+    <div class="sidebar">
+        <div class="sidebar-header">GoSwitcher</div>
+        <button class="tab-btn active" onclick="switchTab('general')">🎛️ Основные</button>
+        <button class="tab-btn" onclick="switchTab('memory')">🧠 Память ИИ</button>
+        <button class="tab-btn" onclick="switchTab('filters')">🛡️ Фильтры</button>
+        <button class="tab-btn" onclick="switchTab('advanced')">⚙️ Ядро (Advanced)</button>
     </div>
 
-    <div class="setting-group">
-        <div class="range-container">
-            <label for="threshold">Порог уверенности ИИ:</label>
-            <span class="threshold-val" id="threshold-val">80%</span>
-        </div>
-        <input type="range" id="threshold" min="50" max="99" value="80">
-        <div class="help-text">Чем выше значение, тем реже программа будет ошибочно исправлять правильные слова.</div>
+    <div class="content">
+        <form id="settingsForm">
+
+            <!-- Вкладка 1: Основные -->
+            <div id="general" class="tab-content active">
+                <h2>Основные настройки</h2>
+
+                <div class="form-group">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" name="enable_ai" id="enable_ai">
+                        Включить автопереключение (AI Engine)
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" name="autostart" id="autostart">
+                        Запускать вместе с Windows
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label>Клавиша принудительного переключения (Hotkey)</label>
+                    <select name="hotkey" id="hotkey">
+                        <option value="pause">Pause / Break</option>
+                        <option value="f12">F12</option>
+                        <option value="f9">F9</option>
+                        <option value="f8">F8</option>
+                        <option value="scrolllock">Scroll Lock</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Порог уверенности ИИ (Threshold)</label>
+                    <div class="slider-container">
+                        <input type="range" name="threshold" id="threshold" min="0" max="100">
+                        <span class="slider-val" id="threshold_val">80</span>
+                    </div>
+                    <label style="font-size: 12px; margin-top: 5px;">Меньше = чаще переключает. Больше = строже проверки.</label>
+                </div>
+            </div>
+
+            <!-- Вкладка 2: Память -->
+            <div id="memory" class="tab-content">
+                <h2>Память и Обучение</h2>
+
+                <div class="form-group">
+                    <label>Слова-исключения (Никогда не переводить)</label>
+                    <textarea name="exceptions" id="exceptions" placeholder="promt&#10;зкщье"></textarea>
+                    <label style="font-size: 12px; margin-top: 5px;">Пополняется автоматически при отмене через двойной Shift.</label>
+                </div>
+
+                <div class="form-group">
+                    <label>Принудительные слова (Всегда переводить)</label>
+                    <textarea name="force_convert" id="force_convert" placeholder="users&#10;docker"></textarea>
+                    <label style="font-size: 12px; margin-top: 5px;">Пополняется автоматически при ручном переводе через Hotkey.</label>
+                </div>
+
+                <div class="form-group">
+                    <label>Словарь DevOps (Custom Vocabulary)</label>
+                    <textarea name="custom_vocab" id="custom_vocab" placeholder="kubectl&#10;mikrotik"></textarea>
+                    <label style="font-size: 12px; margin-top: 5px;">Слова, которые будут внедрены в модель при следующем переобучении.</label>
+                    <button type="button" class="btn-action" onclick="alert('Функция переобучения из UI будет добавлена в бэкенд позже')">🔄 Запустить переобучение</button>
+                </div>
+            </div>
+
+            <!-- Вкладка 3: Фильтры -->
+            <div id="filters" class="tab-content">
+                <h2>Фильтры и Контекст</h2>
+
+                <div class="form-group">
+                    <label>Черный список процессов (Blacklist)</label>
+                    <textarea name="blacklist" id="blacklist" placeholder="zed.exe&#10;code.exe"></textarea>
+                    <label style="font-size: 12px; margin-top: 5px;">Процессы, в которых перехват клавиатуры полностью отключен.</label>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" name="block_paths" id="block_paths">
+                        DevOps: Блокировать перевод путей (начинаются с \ или /)
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" name="block_flags" id="block_flags">
+                        DevOps: Блокировать перевод флагов консоли (начинаются с -)
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" name="use_markov" id="use_markov">
+                        Межсловная память: Учитывать язык предыдущего слова (Марковские цепи)
+                    </label>
+                </div>
+            </div>
+
+            <!-- Вкладка 4: Advanced -->
+            <div id="advanced" class="tab-content">
+                <h2>Настройки Ядра ИИ</h2>
+
+                <div class="form-group">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" name="live_typo_enabled" id="live_typo_enabled">
+                        LiveTypo: Переключение на лету (до нажатия пробела)
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label>Символ срабатывания LiveTypo (от 3 до 6)</label>
+                    <input type="number" name="live_typo_char" id="live_typo_char" min="3" max="6" style="max-width: 100px;">
+                </div>
+
+                <div class="form-group">
+                    <label>Лимит словаря при обучении (Training Limit)</label>
+                    <input type="number" name="training_limit" id="training_limit" style="max-width: 200px;">
+                </div>
+
+                <div class="form-group">
+                    <label>Штраф Лапласа за неизвестные триграммы (Laplace Penalty)</label>
+                    <input type="number" name="laplace_penalty" id="laplace_penalty" style="max-width: 200px;">
+                </div>
+            </div>
+
+        </form>
     </div>
 
-    <div class="setting-group">
-        <label for="hotkey">Горячая клавиша ручной конвертации</label>
-        <input type="text" id="hotkey" value="pause">
-        <div class="help-text">Например: pause, f12, f9. Конвертирует последнее набранное слово.</div>
+    <div class="save-bar" id="saveBar">
+        <span class="toast" id="toastMessage">✔️ Настройки сохранены</span>
+        <button class="btn-save" onclick="saveSettings()">Сохранить изменения</button>
     </div>
 
-    <div class="setting-group">
-        <label for="exceptions">Слова-исключения (по одному в строке)</label>
-        <textarea id="exceptions"></textarea>
-        <div class="help-text">Эти слова никогда не будут конвертироваться (пароли и цифры уже встроены).</div>
-    </div>
+    <script>
+        const form = document.getElementById('settingsForm');
+        const saveBar = document.getElementById('saveBar');
+        const thresholdInput = document.getElementById('threshold');
+        const thresholdVal = document.getElementById('threshold_val');
 
-    <div class="setting-group">
-        <label class="checkbox-container">
-            <input type="checkbox" id="autostart">
-            Запускать вместе с Windows (Автозагрузка)
-        </label>
-    </div>
+        // Логика переключения вкладок
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
 
-    <button id="saveBtn">Сохранить настройки</button>
-</div>
-
-<script>
-    const thresholdSlider = document.getElementById('threshold');
-    const thresholdVal = document.getElementById('threshold-val');
-
-    thresholdSlider.addEventListener('input', function() {
-        thresholdVal.textContent = this.value + '%';
-    });
-
-    fetch('/api/settings')
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById('enable_ai').checked = data.enable_ai;
-            document.getElementById('threshold').value = data.threshold;
-            document.getElementById('threshold-val').textContent = data.threshold + '%';
-            document.getElementById('hotkey').value = data.hotkey;
-            document.getElementById('exceptions').value = data.exceptions;
-            document.getElementById('autostart').checked = data.autostart;
-        })
-        .catch(err => console.error("Ошибка загрузки настроек", err));
-
-    document.getElementById('saveBtn').addEventListener('click', () => {
-        const settings = {
-            enable_ai: document.getElementById('enable_ai').checked,
-            threshold: parseInt(document.getElementById('threshold').value),
-            hotkey: document.getElementById('hotkey').value,
-            exceptions: document.getElementById('exceptions').value,
-            autostart: document.getElementById('autostart').checked
-        };
-
-        fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)
-        }).then(() => {
-            const btn = document.getElementById('saveBtn');
-            btn.innerText = "Сохранено!";
-            setTimeout(() => btn.innerText = "Сохранить настройки", 2000);
+        // Обновление цифры на ползунке
+        thresholdInput.addEventListener('input', (e) => {
+            thresholdVal.textContent = e.target.value;
+            showSaveBar();
         });
-    });
-</script>
 
+        // Показ плавающей панели сохранения при любых изменениях
+        form.addEventListener('input', showSaveBar);
+
+        function showSaveBar() {
+            saveBar.classList.add('visible');
+            document.getElementById('toastMessage').style.display = 'none';
+        }
+
+        // Загрузка настроек с Go-сервера
+        fetch('/api/settings')
+            .then(res => res.json())
+            .then(data => {
+                for (const key in data) {
+                    const el = form.elements[key];
+                    if (el) {
+                        if (el.type === 'checkbox') {
+                            el.checked = data[key];
+                        } else {
+                            el.value = data[key];
+                            if (key === 'threshold') thresholdVal.textContent = data[key];
+                        }
+                    }
+                }
+            })
+            .catch(err => console.error('Ошибка загрузки настроек:', err));
+
+        // Сохранение настроек
+        function saveSettings() {
+            const data = {};
+            Array.from(form.elements).forEach(el => {
+                if (el.name) {
+                    if (el.type === 'checkbox') {
+                        data[el.name] = el.checked;
+                    } else if (el.type === 'number' || el.type === 'range') {
+                        data[el.name] = parseInt(el.value) || 0;
+                    } else {
+                        data[el.name] = el.value;
+                    }
+                }
+            });
+
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).then(() => {
+                document.getElementById('toastMessage').style.display = 'block';
+                setTimeout(() => saveBar.classList.remove('visible'), 2000);
+            }).catch(err => alert('Ошибка сохранения! Убедитесь, что GoSwitcher запущен.'));
+        }
+    </script>
 </body>
 </html>

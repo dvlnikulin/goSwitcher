@@ -14,22 +14,26 @@ import (
 )
 
 type LanguageModel struct {
-	Weights map[string]float64 `json:"weights"`
-	Bias    float64            `json:"bias"`
+	LogPriorPos float64            `json:"log_prior_pos"`
+	LogPriorNeg float64            `json:"log_prior_neg"`
+	LogProbPos  map[string]float64 `json:"log_prob_pos"`
+	LogProbNeg  map[string]float64 `json:"log_prob_neg"`
+	UnseenPos   float64            `json:"unseen_pos"`
+	UnseenNeg   float64            `json:"unseen_neg"`
 }
 
 type AIModel struct {
-	Version    int             `json:"version"`
-	Russian    *LanguageModel  `json:"russian"`
-	English    *LanguageModel  `json:"english"`
-	KnownWords map[string]bool `json:"known_words"`
+	Version      int             `json:"version"`
+	Russian      *LanguageModel  `json:"russian"`
+	English      *LanguageModel  `json:"english"`
+	KnownWords   map[string]bool `json:"known_words"`
+	ValidGramsEn map[string]bool `json:"valid_grams_en"`
+	ValidGramsRu map[string]bool `json:"valid_grams_ru"`
 }
 
 var currentModel *AIModel
 
-// Только очень частые слова — жёсткий стоп-лист против ложных срабатываний
 var commonWords = map[string]bool{
-	// English
 	"the": true, "be": true, "to": true, "of": true, "and": true, "a": true, "in": true,
 	"that": true, "have": true, "i": true, "it": true, "for": true, "not": true, "on": true,
 	"with": true, "he": true, "as": true, "you": true, "do": true, "at": true, "this": true,
@@ -42,7 +46,6 @@ var commonWords = map[string]bool{
 	"year": true, "your": true, "good": true, "some": true, "could": true, "them": true,
 	"see": true, "other": true, "than": true, "then": true, "now": true, "look": true,
 	"only": true, "come": true, "its": true, "over": true, "think": true, "also": true,
-	// Russian
 	"и": true, "в": true, "не": true, "на": true, "я": true, "быть": true, "он": true,
 	"с": true, "что": true, "а": true, "по": true, "это": true, "она": true, "этот": true,
 	"к": true, "но": true, "они": true, "мы": true, "как": true, "из": true, "у": true,
@@ -52,8 +55,63 @@ var commonWords = map[string]bool{
 	"да": true, "если": true, "чтобы": true, "только": true, "себя": true, "мне": true,
 }
 
+var devOpsTerms = []string{
+	"users", "limit", "kind", "promt", "grep", "awk", "sed", "chmod", "chown", "root", "sudo",
+	"localhost", "userspace", "backend", "frontend", "config", "yaml", "json", "bash", "shell", "fish",
+	"kubernetes", "kubectl", "helm", "docker", "ansible", "terraform", "traefik", "nginx",
+	"opensearch", "elasticsearch", "kafka", "vector", "victorialogs", "galera", "percona",
+	"linux", "ubuntu", "centos", "opensuse", "tumbleweed", "wsl", "hyperv", "vmware", "virtualbox",
+	"mikrotik", "routeros", "winbox", "wireguard", "ssh", "proxy", "network", "node", "cluster", "deploy",
+	"git", "commit", "vscode", "zed", "golang", "rust", "python", "script",
+}
+
 var ruToEn = map[rune]rune{'й': 'q', 'ц': 'w', 'у': 'e', 'к': 'r', 'е': 't', 'н': 'y', 'г': 'u', 'ш': 'i', 'щ': 'o', 'з': 'p', 'х': '[', 'ъ': ']', 'ф': 'a', 'ы': 's', 'в': 'd', 'а': 'f', 'п': 'g', 'р': 'h', 'о': 'j', 'л': 'k', 'д': 'l', 'ж': ';', 'э': '\'', 'я': 'z', 'ч': 'x', 'с': 'c', 'м': 'v', 'и': 'b', 'т': 'n', 'ь': 'm', 'б': ',', 'ю': '.', 'ё': '`'}
 var enToRu = map[rune]rune{'q': 'й', 'w': 'ц', 'e': 'у', 'r': 'к', 't': 'е', 'y': 'н', 'u': 'г', 'i': 'ш', 'o': 'щ', 'p': 'з', '[': 'х', ']': 'ъ', 'a': 'ф', 's': 'ы', 'd': 'в', 'f': 'а', 'g': 'п', 'h': 'р', 'j': 'о', 'k': 'л', 'l': 'д', ';': 'ж', '\'': 'э', 'z': 'я', 'x': 'ч', 'c': 'с', 'v': 'м', 'b': 'и', 'n': 'т', 'm': 'ь', ',': 'б', '.': 'ю', '`': 'ё'}
+
+// ⚡ ВАРИАНТ В: Топография клавиатуры (Проекция физического расположения клавиш)
+type KeyCoord struct {
+	X, Y float64
+}
+
+// Координатная сетка смещенных рядов стандартной клавиатуры
+var qwertyMap = map[rune]KeyCoord{
+	'q': {0, 0}, 'w': {1, 0}, 'e': {2, 0}, 'r': {3, 0}, 't': {4, 0}, 'y': {5, 0}, 'u': {6, 0}, 'i': {7, 0}, 'o': {8, 0}, 'p': {9, 0}, '[': {10, 0}, ']': {11, 0},
+	'a': {0.5, 1}, 's': {1.5, 1}, 'd': {2.5, 1}, 'f': {3.5, 1}, 'g': {4.5, 1}, 'h': {5.5, 1}, 'j': {6.5, 1}, 'k': {7.5, 1}, 'l': {8.5, 1}, ';': {9.5, 1}, '\'': {10.5, 1},
+	'z': {1, 2}, 'x': {2, 2}, 'c': {3, 2}, 'v': {4, 2}, 'b': {5, 2}, 'n': {6, 2}, 'm': {7, 2}, ',': {8, 2}, '.': {9, 2}, '/': {10, 2},
+}
+
+// Высчитывает среднюю дистанцию пробега пальцев при наборе слова
+func calcAverageJump(physicalWordEn string) float64 {
+	w := strings.ToLower(physicalWordEn)
+	if len(w) < 2 {
+		return 3.0 // Дефолтное нормальное расстояние
+	}
+
+	var totalDist float64
+	var jumps float64
+	var lastCoord KeyCoord
+	var hasLast bool
+
+	for _, r := range w {
+		if coord, ok := qwertyMap[r]; ok {
+			if hasLast {
+				// Теорема Пифагора для поиска дистанции между клавишами
+				dx := coord.X - lastCoord.X
+				dy := coord.Y - lastCoord.Y
+				dist := math.Sqrt(dx*dx + dy*dy)
+				totalDist += dist
+				jumps++
+			}
+			lastCoord = coord
+			hasLast = true
+		}
+	}
+
+	if jumps == 0 {
+		return 3.0
+	}
+	return totalDist / jumps
+}
 
 func convertRuToEn(word string) string {
 	var res strings.Builder
@@ -109,13 +167,37 @@ func loadWords(path string) []string {
 			words = append(words, w)
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		fmt.Printf("[-] Ошибка чтения %s: %v\n", path, err)
-	}
 	return words
 }
 
-// n-граммы с маркерами начала/конца слова
+func sanitizeDictionary(words []string, vowels, consonants string) []string {
+	var clean []string
+	for _, w := range words {
+		if len(w) < 2 {
+			continue
+		}
+		if len([]rune(w)) >= 3 && !strings.ContainsAny(w, vowels) {
+			continue
+		}
+		cur := 0
+		for _, r := range w {
+			if strings.ContainsRune(consonants, r) {
+				cur++
+			} else {
+				cur = 0
+			}
+			if cur > 4 {
+				break
+			}
+		}
+		if cur > 4 {
+			continue
+		}
+		clean = append(clean, w)
+	}
+	return clean
+}
+
 func getNGrams(word string) []string {
 	marked := "^" + word + "$"
 	chars := []rune(marked)
@@ -128,70 +210,95 @@ func getNGrams(word string) []string {
 	return ngrams
 }
 
-// Score возвращает P(слово валидно в языке модели)
-func (lm *LanguageModel) Score(word string) float64 {
-	if lm == nil || lm.Weights == nil {
-		return 0
-	}
-	logit := lm.Bias
-	for _, ng := range getNGrams(word) {
-		logit += lm.Weights[ng]
-	}
-	return 1.0 / (1.0 + math.Exp(-logit))
-}
+// ⚡ Динамический штраф Лапласа из настроек (penalty)
+func trainNaiveBayes(positives, negatives []string, penalty float64) *LanguageModel {
+	posCount := float64(len(positives))
+	negCount := float64(len(negatives))
+	totalCount := posCount + negCount
 
-func trainLanguageModel(positives, negatives []string, epochs int, initialLr float64) *LanguageModel {
-	lm := &LanguageModel{Weights: make(map[string]float64)}
-
-	type sample struct {
-		word  string
-		label float64
+	lm := &LanguageModel{
+		LogPriorPos: math.Log(posCount / totalCount),
+		LogPriorNeg: math.Log(negCount / totalCount),
+		LogProbPos:  make(map[string]float64),
+		LogProbNeg:  make(map[string]float64),
 	}
 
-	dataset := make([]sample, 0, len(positives)+len(negatives))
+	posGramsCount := make(map[string]float64)
+	negGramsCount := make(map[string]float64)
+	vocab := make(map[string]bool)
+
+	var totalPosGrams, totalNegGrams float64
+
 	for _, w := range positives {
-		dataset = append(dataset, sample{w, 1})
-	}
-	for _, w := range negatives {
-		dataset = append(dataset, sample{w, 0})
-	}
-
-	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	for e := 0; e < epochs; e++ {
-		lr := initialLr * (1.0 - 0.5*float64(e)/float64(epochs))
-		rnd.Shuffle(len(dataset), func(i, j int) { dataset[i], dataset[j] = dataset[j], dataset[i] })
-
-		for _, s := range dataset {
-			ngrams := getNGrams(s.word)
-			logit := lm.Bias
-			for _, ng := range ngrams {
-				logit += lm.Weights[ng]
-			}
-			pred := 1.0 / (1.0 + math.Exp(-logit))
-			err := s.label - pred
-			for _, ng := range ngrams {
-				lm.Weights[ng] += lr * err
-			}
-			lm.Bias += lr * err
+		for _, ng := range getNGrams(w) {
+			posGramsCount[ng]++
+			vocab[ng] = true
+			totalPosGrams++
 		}
-		fmt.Printf("[ИИ] Эпоха %d/%d (lr=%.4f)\n", e+1, epochs, lr)
 	}
+
+	for _, w := range negatives {
+		for _, ng := range getNGrams(w) {
+			negGramsCount[ng]++
+			vocab[ng] = true
+			totalNegGrams++
+		}
+	}
+
+	vocabSize := float64(len(vocab))
+
+	for ng := range vocab {
+		lm.LogProbPos[ng] = math.Log((posGramsCount[ng] + penalty) / (totalPosGrams + vocabSize*penalty))
+		lm.LogProbNeg[ng] = math.Log((negGramsCount[ng] + penalty) / (totalNegGrams + vocabSize*penalty))
+	}
+
+	lm.UnseenPos = math.Log(penalty / (totalPosGrams + vocabSize*penalty))
+	lm.UnseenNeg = math.Log(penalty / (totalNegGrams + vocabSize*penalty))
+
 	return lm
 }
 
 func TrainModel(ruPath, enPath string) error {
-	fmt.Println("[ИИ] Обучение двух моделей...")
-	ruWords := loadWords(ruPath)
-	enWords := loadWords(enPath)
-	fmt.Printf("[ИИ] Загружено: RU=%d, EN=%d\n", len(ruWords), len(enWords))
+	// Считываем динамические параметры из Web UI
+	settingsMutex.RLock()
+	limit := settings.TrainingLimit
+	if limit <= 0 {
+		limit = 60000
+	}
+	penalty := float64(settings.LaplacePenalty)
+	if penalty <= 0.001 { // Защита от нулевого сглаживания
+		penalty = 1.0
+	}
+	customVocabStr := settings.CustomVocab
+	settingsMutex.RUnlock()
 
-	// Ограничим выборку для скорости
+	fmt.Println("[ИИ] Загрузка и очистка словарей от мусора...")
+
+	rawRu := loadWords(ruPath)
+	rawEn := loadWords(enPath)
+
+	ruWords := sanitizeDictionary(rawRu, "аеёиоуыэюя", "бвгджзйклмнпрстфхцчшщ")
+	enWords := sanitizeDictionary(rawEn, "aeiouy", "bcdfghjklmnpqrstvwxz")
+
+	// Инъекция стандартных терминов
+	for _, term := range devOpsTerms {
+		enWords = append(enWords, term)
+	}
+
+	// ⚡ Инъекция пользовательских терминов из Web UI
+	for _, term := range strings.Split(customVocabStr, "\n") {
+		term = strings.TrimSpace(term)
+		if term != "" {
+			enWords = append(enWords, term)
+		}
+	}
+
+	fmt.Printf("[ИИ] Очищено: RU=%d (было %d), EN=%d (было %d)\n", len(ruWords), len(rawRu), len(enWords), len(rawEn))
+
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 	rnd.Shuffle(len(ruWords), func(i, j int) { ruWords[i], ruWords[j] = ruWords[j], ruWords[i] })
 	rnd.Shuffle(len(enWords), func(i, j int) { enWords[i], enWords[j] = enWords[j], enWords[i] })
 
-	limit := 60000
 	ruSample := ruWords
 	if len(ruSample) > limit {
 		ruSample = ruSample[:limit]
@@ -201,47 +308,56 @@ func TrainModel(ruPath, enPath string) error {
 		enSample = enSample[:limit]
 	}
 
-	// Генерируем «фейковые» слова — транслит в противоположной раскладке
-	fakeRu := make([]string, 0, len(enSample)) // EN → RU-подобные
+	fakeRu := make([]string, 0, len(enSample))
 	for _, w := range enSample {
 		fakeRu = append(fakeRu, convertEnToRu(w))
 	}
-	fakeEn := make([]string, 0, len(ruSample)) // RU → EN-подобные
+	fakeEn := make([]string, 0, len(ruSample))
 	for _, w := range ruSample {
 		fakeEn = append(fakeEn, convertRuToEn(w))
 	}
 
 	model := &AIModel{
-		Version:    2,
-		KnownWords: make(map[string]bool),
+		Version:      3,
+		KnownWords:   make(map[string]bool),
+		ValidGramsEn: make(map[string]bool),
+		ValidGramsRu: make(map[string]bool),
 	}
 
 	for _, w := range ruWords {
 		model.KnownWords[w] = true
+		marked := "^" + w + "$"
+		chars := []rune(marked)
+		for i := 0; i <= len(chars)-3; i++ {
+			model.ValidGramsRu[string(chars[i:i+3])] = true
+		}
 	}
 	for _, w := range enWords {
 		model.KnownWords[w] = true
+		marked := "^" + w + "$"
+		chars := []rune(marked)
+		for i := 0; i <= len(chars)-3; i++ {
+			model.ValidGramsEn[string(chars[i:i+3])] = true
+		}
 	}
 
-	// RU-модель: учим отличать настоящий русский от фейкового (транслит EN) и латиницы
-	fmt.Println("[ИИ] Обучение русской модели...")
+	fmt.Printf("[ИИ] Сборка русской модели (Лимит: %d, Лаплас: %.1f)...\n", limit, penalty)
 	ruNeg := make([]string, 0, len(fakeRu)+len(enSample)/4)
 	ruNeg = append(ruNeg, fakeRu...)
 	for i := 0; i < len(enSample) && i < 15000; i++ {
-		ruNeg = append(ruNeg, enSample[i]) // латиница как явный negative
+		ruNeg = append(ruNeg, enSample[i])
 	}
-	model.Russian = trainLanguageModel(ruSample, ruNeg, 12, 0.15)
+	model.Russian = trainNaiveBayes(ruSample, ruNeg, penalty)
 
-	// EN-модель: настоящий английский vs фейковый (транслит RU) и кириллица
-	fmt.Println("[ИИ] Обучение английской модели...")
+	fmt.Println("[ИИ] Сборка английской модели...")
 	enNeg := make([]string, 0, len(fakeEn)+len(ruSample)/4)
 	enNeg = append(enNeg, fakeEn...)
 	for i := 0; i < len(ruSample) && i < 15000; i++ {
 		enNeg = append(enNeg, ruSample[i])
 	}
-	model.English = trainLanguageModel(enSample, enNeg, 12, 0.15)
+	model.English = trainNaiveBayes(enSample, enNeg, penalty)
 
-	fmt.Println("[ИИ] Сохранение model.json...")
+	fmt.Println("[ИИ] Сохранение model.json (Формат V3)...")
 	data, _ := json.MarshalIndent(model, "", "  ")
 	if err := os.WriteFile("model.json", data, 0644); err != nil {
 		return err
@@ -264,25 +380,21 @@ func loadModel() {
 		return
 	}
 
-	// Проверка новой структуры
-	if m.Version >= 2 && m.Russian != nil && m.English != nil {
+	if m.Version >= 3 && m.Russian != nil && m.English != nil {
 		currentModel = &m
-		logDebug("Модель v2 загружена (RU=%d весов, EN=%d весов)",
-			len(m.Russian.Weights), len(m.English.Weights))
+		logDebug("Модель v3 загружена")
 		return
 	}
 
 	logDebug("Модель старого формата — требуется переобучение (флаг -learn)")
 }
 
-// IsImpossible — эвристика для «явно не слово в текущей раскладке»
 func IsImpossible(word string) bool {
 	w := strings.ToLower(word)
 	if len(w) < 3 {
 		return false
 	}
 	hasVowels := strings.ContainsAny(w, "аеёиоуыэюяaeiouy")
-	// Согласных подряд много — почти всегда транслит
 	consonants := "бвгджзйклмнпрстфхцчшщbcdfghjklmnpqrstvwxz"
 	maxCons := 0
 	cur := 0
@@ -299,7 +411,77 @@ func IsImpossible(word string) bool {
 	return (!hasVowels && len(w) >= 3) || maxCons >= 5
 }
 
-// ScoreCurrent — вероятность что слово валидно в языке lang
+func isCyrillic(word string) bool {
+	for _, r := range word {
+		if unicode.Is(unicode.Cyrillic, r) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsHardTypo(word string, isRu bool, isFinished bool) bool {
+	if len(word) < 2 {
+		return false
+	}
+	if IsImpossible(word) {
+		return true
+	}
+	if currentModel == nil || currentModel.ValidGramsEn == nil || currentModel.ValidGramsRu == nil {
+		return false
+	}
+	validMap := currentModel.ValidGramsEn
+	if isRu {
+		validMap = currentModel.ValidGramsRu
+	}
+
+	marked := "^" + word
+	if isFinished {
+		marked += "$"
+	}
+	chars := []rune(marked)
+
+	for i := 0; i <= len(chars)-3; i++ {
+		if !validMap[string(chars[i:i+3])] {
+			return true
+		}
+	}
+	return false
+}
+
+// ⚡ ТОЧНЫЙ РАСЧЕТ: Суммирование логарифмических вероятностей
+func (lm *LanguageModel) Score(word string) float64 {
+	if lm == nil || lm.LogProbPos == nil {
+		return 0
+	}
+	scorePos := lm.LogPriorPos
+	scoreNeg := lm.LogPriorNeg
+
+	for _, ng := range getNGrams(word) {
+		if val, ok := lm.LogProbPos[ng]; ok {
+			scorePos += val
+		} else {
+			scorePos += lm.UnseenPos
+		}
+
+		if val, ok := lm.LogProbNeg[ng]; ok {
+			scoreNeg += val
+		} else {
+			scoreNeg += lm.UnseenNeg
+		}
+	}
+
+	diff := scoreNeg - scorePos
+	// Защита от математического переполнения
+	if diff > 500 {
+		return 0.0
+	}
+	if diff < -500 {
+		return 1.0
+	}
+	return 1.0 / (1.0 + math.Exp(diff))
+}
+
 func scoreInLang(word, lang string) float64 {
 	if currentModel == nil {
 		return 0
@@ -310,7 +492,6 @@ func scoreInLang(word, lang string) float64 {
 	return currentModel.English.Score(word)
 }
 
-// ShouldConvertWord — главная точка принятия решения
 func ShouldConvertWord(wordCurrent, wordOther, currentLang string, threshold float64) bool {
 	wc := strings.ToLower(wordCurrent)
 	wo := strings.ToLower(wordOther)
@@ -322,7 +503,8 @@ func ShouldConvertWord(wordCurrent, wordOther, currentLang string, threshold flo
 		return false
 	}
 
-	// Без модели — простая эвристика
+	isRu := (currentLang == "ru")
+
 	if currentModel == nil {
 		if IsImpossible(wc) && !IsImpossible(wo) {
 			return true
@@ -330,38 +512,50 @@ func ShouldConvertWord(wordCurrent, wordOther, currentLang string, threshold flo
 		return false
 	}
 
-	// Текущее слово — реальное слово в любом из языков → не трогаем
 	if currentModel.KnownWords[wc] {
 		return false
 	}
 
-	// Другое слово — реальное слово → почти всегда конвертируем
 	if currentModel.KnownWords[wo] {
 		return true
 	}
 
-	// Явно невозможное текущее → конвертируем
-	if IsImpossible(wc) && !IsImpossible(wo) {
+	if IsHardTypo(wc, isRu, true) && !IsHardTypo(wo, !isRu, true) {
 		return true
 	}
 
-	// Сравниваем уверенность двух моделей
 	var scoreCurrent, scoreOther float64
-	if currentLang == "ru" {
-		scoreCurrent = scoreInLang(wc, "ru") // насколько текущее похоже на русское
-		scoreOther = scoreInLang(wo, "en")   // насколько другое похоже на английское
+	var physicalPathEn string
+
+	if isRu {
+		scoreCurrent = scoreInLang(wc, "ru")
+		scoreOther = scoreInLang(wo, "en")
+		physicalPathEn = wo // Если текущий русский, физические клавиши отражены в английской проекции
 	} else {
 		scoreCurrent = scoreInLang(wc, "en")
 		scoreOther = scoreInLang(wo, "ru")
+		physicalPathEn = wc
 	}
 
-	// margin растёт с порогом: 0.5→агрессивно, 0.9→консервативно
-	margin := 0.05 + (threshold-0.5)*0.5
-	if margin < 0.05 {
-		margin = 0.05
+	// ⚡ Топографический модификатор
+	avgJump := calcAverageJump(physicalPathEn)
+	jumpModifier := 0.0
+
+	// Если пальцы бьют в одну кучу (дистанция < 2.0), это с высокой вероятностью опечатка
+	if avgJump < 2.0 {
+		jumpModifier = 0.10 // Смягчаем порог переключения (повышаем шанс замены)
+	} else if avgJump > 4.5 {
+		jumpModifier = -0.05 // Слишком широкие прыжки — скорее всего нормальное слово
 	}
-	if margin > 0.35 {
-		margin = 0.35
+
+	margin := 0.05 + (threshold-0.5)*0.5 - jumpModifier
+
+	// Защитные рамки маржи
+	if margin < 0.02 {
+		margin = 0.02
+	}
+	if margin > 0.40 {
+		margin = 0.40
 	}
 
 	return (scoreOther-scoreCurrent) > margin && scoreOther > 0.35
