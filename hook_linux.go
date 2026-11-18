@@ -154,6 +154,15 @@ var (
 	shiftReleased           bool   = true
 	lastFinalLang           string = "en"
 
+	// Кэш активного процесса (Wayland / X11)
+	cachedActiveProc     string
+	lastActiveProc       string
+	lastProcCheckTime    time.Time
+	hasKdotool           bool
+	hasXdotool           bool
+	qdbusBinary          string
+	waylandToolsDetected bool
+
 	// Состояние модификаторов в реальном времени
 	lShiftDown, rShiftDown bool
 	lCtrlDown, rCtrlDown   bool
@@ -209,6 +218,130 @@ var hexToKey = map[rune]uint16{
 	'a': KEY_A, 'b': KEY_B, 'c': KEY_C, 'd': KEY_D, 'e': KEY_E, 'f': KEY_F,
 }
 
+func detectDesktopTools() {
+	if waylandToolsDetected {
+		return
+	}
+	waylandToolsDetected = true
+	if _, err := exec.LookPath("kdotool"); err == nil {
+		hasKdotool = true
+	}
+	if _, err := exec.LookPath("xdotool"); err == nil {
+		hasXdotool = true
+	}
+	if _, err := exec.LookPath("qdbus6"); err == nil {
+		qdbusBinary = "qdbus6"
+	} else if _, err := exec.LookPath("qdbus"); err == nil {
+		qdbusBinary = "qdbus"
+	}
+}
+
+func readProcessNameByPID(pidStr string) string {
+	pidStr = strings.TrimSpace(pidStr)
+	if pidStr == "" || pidStr == "0" {
+		return ""
+	}
+	if comm, err := os.ReadFile("/proc/" + pidStr + "/comm"); err == nil {
+		return strings.ToLower(strings.TrimSpace(string(comm)))
+	}
+	return ""
+}
+
+// Нативное определение активного окна/процесса для KDE Plasma Wayland (KWin) и X11
+func getActiveProcessLinux() string {
+	if time.Since(lastProcCheckTime) < 250*time.Millisecond {
+		return cachedActiveProc
+	}
+	lastProcCheckTime = time.Now()
+	detectDesktopTools()
+
+	var detected string
+
+	// 1. KDE Plasma Wayland: kdotool (быстрый нативный инструмент для KWin)
+	if hasKdotool {
+		if out, err := exec.Command("kdotool", "getactivewindow", "getwindowpid").Output(); err == nil {
+			detected = readProcessNameByPID(string(out))
+		}
+		if detected == "" {
+			if out, err := exec.Command("kdotool", "getactivewindow", "getwindowclassname").Output(); err == nil {
+				detected = strings.ToLower(strings.TrimSpace(string(out)))
+			}
+		}
+	}
+
+	// 2. KDE Plasma Wayland: прямой запрос через KWin Scripting D-Bus (если kdotool не установлен)
+	if detected == "" && qdbusBinary != "" && os.Getenv("XDG_SESSION_TYPE") == "wayland" {
+		detected = queryKWinActiveWindowViaDBus()
+	}
+
+	// 3. X11 / XWayland фоллбэк через xdotool
+	if detected == "" && hasXdotool {
+		if out, err := exec.Command("xdotool", "getactivewindow", "getwindowpid").Output(); err == nil {
+			detected = readProcessNameByPID(string(out))
+		}
+	}
+
+	cachedActiveProc = detected
+	return detected
+}
+
+// Запуск одноразового KWin JS-скрипта через D-Bus для получения PID / resourceClass активного Wayland-окна
+func queryKWinActiveWindowViaDBus() string {
+	tmpFile, err := os.CreateTemp("", "goswitcher_kwin_*.js")
+	if err != nil {
+		return ""
+	}
+	scriptPath := tmpFile.Name()
+	defer os.Remove(scriptPath)
+
+	// Поддержка Plasma 6 (workspace.activeWindow) и Plasma 5 (workspace.activeClient)
+	jsCode := `
+var w = workspace.activeWindow || workspace.activeClient;
+if (w) {
+    print("GOSWITCHER_WIN:" + w.pid + ":" + w.resourceClass);
+}
+`
+	tmpFile.WriteString(jsCode)
+	tmpFile.Close()
+
+	pluginName := "goswitcher_probe"
+	out, err := exec.Command(qdbusBinary, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", scriptPath, pluginName).Output()
+	if err != nil {
+		return ""
+	}
+	scriptId := strings.TrimSpace(string(out))
+	if scriptId == "" {
+		return ""
+	}
+
+	// В Plasma 6 путь /Scripting/Script<id>, в Plasma 5 /<id>
+	scriptObj := "/Scripting/Script" + scriptId
+	if err := exec.Command(qdbusBinary, "org.kde.KWin", scriptObj, "org.kde.kwin.Script.run").Run(); err != nil {
+		scriptObj = "/" + scriptId
+		exec.Command(qdbusBinary, "org.kde.KWin", scriptObj, "org.kde.kwin.Script.run").Run()
+	}
+	exec.Command(qdbusBinary, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", pluginName).Run()
+
+	// Читаем свежую запись из journalctl за последнюю секунду
+	if jOut, err := exec.Command("journalctl", "--user", "-u", "plasma-kwin_wayland.service", "-n", "5", "--no-pager", "-o", "cat").Output(); err == nil {
+		lines := strings.Split(string(jOut), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if idx := strings.Index(lines[i], "GOSWITCHER_WIN:"); idx != -1 {
+				parts := strings.Split(strings.TrimSpace(lines[i][idx:]), ":")
+				if len(parts) >= 2 {
+					if procName := readProcessNameByPID(parts[1]); procName != "" {
+						return procName
+					}
+				}
+				if len(parts) >= 3 && parts[2] != "" {
+					return strings.ToLower(parts[2])
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // Инициализация виртуальной клавиатуры uinput
 func initUinput() error {
 	fd, err := syscall.Open("/dev/uinput", syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
@@ -260,7 +393,6 @@ func simulateBackspace() {
 	tapKey(KEY_BACKSPACE)
 }
 
-// Отправка произвольного Unicode символа через стандартный Linux-механизм Ctrl+Shift+U
 func sendUnicodeRune(r rune) {
 	if r == '\n' {
 		tapKey(KEY_ENTER)
@@ -299,50 +431,30 @@ func sendUnicodeString(text string) {
 	}
 }
 
-// Переключение раскладки в KDE Plasma / GNOME (Super + Space или qdbus)
 func switchLayoutLinux() {
-	// Пробуем нативный D-Bus вызов KDE Plasma (работает мгновенно на Wayland и X11)
-	if err := exec.Command("qdbus", "org.kde.keyboard", "/Layouts", "switchToNextLayout").Run(); err == nil {
-		return
+	detectDesktopTools()
+	if qdbusBinary != "" {
+		if err := exec.Command(qdbusBinary, "org.kde.keyboard", "/Layouts", "switchToNextLayout").Run(); err == nil {
+			return
+		}
 	}
-	if err := exec.Command("qdbus6", "org.kde.keyboard", "/Layouts", "switchToNextLayout").Run(); err == nil {
-		return
-	}
-	// Фоллбэк на стандартную комбинацию Super + Space
 	emitKey(KEY_LEFTMETA, 1)
 	time.Sleep(5 * time.Millisecond)
 	tapKey(KEY_SPACE)
 	emitKey(KEY_LEFTMETA, 0)
 }
 
-// Определение текущей раскладки (true = RU, false = EN)
 func isRussianLayoutLinux() bool {
-	// 1. KDE Plasma D-Bus (актуально для openSUSE Tumbleweed KDE)
-	if out, err := exec.Command("qdbus", "org.kde.keyboard", "/Layouts", "getLayout").Output(); err == nil {
-		s := strings.ToLower(strings.TrimSpace(string(out)))
-		return strings.Contains(s, "ru")
+	detectDesktopTools()
+	if qdbusBinary != "" {
+		if out, err := exec.Command(qdbusBinary, "org.kde.keyboard", "/Layouts", "getLayout").Output(); err == nil {
+			s := strings.ToLower(strings.TrimSpace(string(out)))
+			return strings.Contains(s, "ru")
+		}
 	}
-	if out, err := exec.Command("qdbus6", "org.kde.keyboard", "/Layouts", "getLayout").Output(); err == nil {
-		s := strings.ToLower(strings.TrimSpace(string(out)))
-		return strings.Contains(s, "ru")
-	}
-	// 2. Фоллбэк на запомненное состояние
 	return lastFinalLang == "ru"
 }
 
-// Получение имени активного процесса (для Blacklist)
-func getActiveProcessLinux() string {
-	// X11 / XWayland проверка
-	if out, err := exec.Command("xdotool", "getactivewindow", "getwindowpid").Output(); err == nil {
-		pid := strings.TrimSpace(string(out))
-		if comm, err := os.ReadFile("/proc/" + pid + "/comm"); err == nil {
-			return strings.ToLower(strings.TrimSpace(string(comm)))
-		}
-	}
-	return ""
-}
-
-// Буфер обмена Linux (Wayland wl-clipboard / X11 xclip)
 func getClipboardLinux() (string, bool) {
 	if out, err := exec.Command("wl-paste", "--no-newline").Output(); err == nil {
 		return string(out), true
@@ -1129,14 +1241,12 @@ func isModifierLinux(code uint16) bool {
 	return false
 }
 
-// Обработка сырого события от физической клавиатуры
 func handleLinuxKeyEvent(ev linuxInputEvent) {
 	if ev.Type != EV_KEY || atomic.LoadUint32(&isReplacing) == 1 {
 		return
 	}
 
 	code := ev.Code
-	// Value: 1 = нажатие, 0 = отпускание, 2 = автоповтор
 	if ev.Value == 0 {
 		switch code {
 		case KEY_LEFTSHIFT:
@@ -1178,14 +1288,24 @@ func handleLinuxKeyEvent(ev linuxInputEvent) {
 		capsLockState = !capsLockState
 	}
 
-	// Проверка Blacklist активного процесса
+	// Проверка смены окна и Blacklist (Wayland KWin + X11)
 	activeProc := getActiveProcessLinux()
+	if activeProc != lastActiveProc {
+		if lastActiveProc != "" {
+			currentWord = currentWord[:0]
+			lastWord = lastWord[:0]
+			lastRenderedWord = ""
+		}
+		lastActiveProc = activeProc
+	}
+
 	if activeProc != "" {
 		settingsMutex.RLock()
 		blacklist := strings.ToLower(settings.Blacklist)
 		settingsMutex.RUnlock()
 		for _, b := range strings.Split(blacklist, "\n") {
-			if strings.TrimSpace(b) == activeProc {
+			b = strings.TrimSuffix(strings.TrimSpace(b), ".exe")
+			if b != "" && (activeProc == b || strings.Contains(activeProc, b)) {
 				return
 			}
 		}
@@ -1292,7 +1412,6 @@ func handleLinuxKeyEvent(ev linuxInputEvent) {
 	}
 }
 
-// Поиск всех физических клавиатур в /dev/input/event*
 func findKeyboards() []string {
 	var keyboards []string
 	matches, _ := filepath.Glob("/dev/input/event*")
@@ -1306,7 +1425,6 @@ func findKeyboards() []string {
 		syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), EVIOCGNAME_256, uintptr(unsafe.Pointer(&nameBuf[0])))
 		name := string(bytes.TrimRight(nameBuf[:], "\x00"))
 
-		// Пропускаем нашу собственную виртуальную клавиатуру!
 		if strings.Contains(name, "GoSwitcher") {
 			syscall.Close(fd)
 			continue
@@ -1317,11 +1435,9 @@ func findKeyboards() []string {
 		if (evBits[0] & (1 << EV_KEY)) != 0 {
 			var keyBits [12]uint64
 			syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), EVIOCGBIT_KEY, uintptr(unsafe.Pointer(&keyBits[0])))
-			// Проверяем наличие клавиши KEY_A (30) и KEY_SPACE (57)
 			hasA := (keyBits[KEY_A/64] & (1 << (KEY_A % 64))) != 0
 			hasSpace := (keyBits[KEY_SPACE/64] & (1 << (KEY_SPACE % 64))) != 0
 			if hasA && hasSpace {
-				// Синхронизируем начальное состояние светодиода Caps Lock
 				var ledBits [1]uint64
 				syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), EVIOCGLED, uintptr(unsafe.Pointer(&ledBits[0])))
 				if (ledBits[0] & (1 << LED_CAPSL)) != 0 {
