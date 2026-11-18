@@ -78,6 +78,8 @@ jobs:
             rpm-build \
             libayatana-appindicator3-devel \
             gtk3-devel \
+            udev \
+            systemd-rpm-macros \
             tar \
             gzip \
             git
