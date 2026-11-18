@@ -9,6 +9,7 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  go >= 1.21
 BuildRequires:  pkgconfig(ayatana-appindicator3-0.1)
 BuildRequires:  pkgconfig(gtk+-3.0)
+BuildRequires:  systemd-rpm-macros
 BuildRequires:  udev
 
 Requires:       libayatana-appindicator3-1

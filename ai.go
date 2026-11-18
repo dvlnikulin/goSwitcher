@@ -359,7 +359,7 @@ func TrainModel(ruPath, enPath string) error {
 		ValidGramsRu: make(map[string]bool),
 	}
 
-	for _, w := range ruWords {
+	for _, w := range ruSample { // 👈 Используем обрезанный ruSample
 		model.KnownWords[w] = true
 		marked := "^" + w + "$"
 		chars := []rune(marked)
@@ -367,7 +367,7 @@ func TrainModel(ruPath, enPath string) error {
 			model.ValidGramsRu[string(chars[i:i+3])] = true
 		}
 	}
-	for _, w := range enWords {
+	for _, w := range enSample { // 👈 Используем обрезанный enSample
 		model.KnownWords[w] = true
 		marked := "^" + w + "$"
 		chars := []rune(marked)
