@@ -432,13 +432,22 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 			shiftState, _, _ := procGetKeyState.Call(uintptr(VK_SHIFT))
 			altState, _, _ := procGetKeyState.Call(uintptr(VK_MENU))
 			ctrlState, _, _ := procGetKeyState.Call(uintptr(VK_CONTROL))
+			winLState, _, _ := procGetKeyState.Call(uintptr(0x5B))
+			winRState, _, _ := procGetKeyState.Call(uintptr(0x5C))
+
 			isShift := (shiftState & 0x8000) != 0
 			isAlt := (altState & 0x8000) != 0
 			isCtrl := (ctrlState & 0x8000) != 0
+			isWin := (winLState&0x8000) != 0 || (winRState&0x8000) != 0
 
-			if isCtrl && vk != targetHotkeyVK && vk != caseHotkeyVK {
-				ret, _, _ := procCallNextHookEx.Call(keyboardHook, uintptr(nCode), wParam, lParam)
-				return ret
+			// ⚡ Естественный сброс слова при ручной смене раскладки через Ctrl/Alt/Win
+			// ⚡ Естественный сброс слова при ручной смене раскладки через Ctrl/Alt/Win
+			if (isCtrl || isAlt || isWin) && vk != targetHotkeyVK && vk != caseHotkeyVK {
+				EngineClearContext()
+				if isCtrl {
+					ret, _, _ := procCallNextHookEx.Call(keyboardHook, uintptr(nCode), wParam, lParam)
+					return ret
+				}
 			}
 
 			if vk == caseHotkeyVK && isShift == caseNeedShift && isAlt == caseNeedAlt {

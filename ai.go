@@ -106,12 +106,10 @@ func CalcAverageJump(physicalWordEn string) float64 {
 				dy := coord.Y - lastCoord.Y
 				dist := math.Sqrt(dx*dx + dy*dy)
 
-				// Вычисляем индивидуальную «горячесть» пары клавиш
 				heatA := float64(keyHeatmap[string(lastRune)]) / float64(maxHeat)
 				heatB := float64(keyHeatmap[string(r)]) / float64(maxHeat)
 				avgHeat := (heatA + heatB) / 2.0
 
-				// Сжимаем виртуальное расстояние до 35% для проблемных клавиш пользователя
 				if avgHeat > 0.1 {
 					dist *= (1.0 - avgHeat*0.35)
 				}
@@ -359,7 +357,7 @@ func TrainModel(ruPath, enPath string) error {
 		ValidGramsRu: make(map[string]bool),
 	}
 
-	for _, w := range ruSample { // 👈 Используем обрезанный ruSample
+	for _, w := range ruSample {
 		model.KnownWords[w] = true
 		marked := "^" + w + "$"
 		chars := []rune(marked)
@@ -367,7 +365,7 @@ func TrainModel(ruPath, enPath string) error {
 			model.ValidGramsRu[string(chars[i:i+3])] = true
 		}
 	}
-	for _, w := range enSample { // 👈 Используем обрезанный enSample
+	for _, w := range enSample {
 		model.KnownWords[w] = true
 		marked := "^" + w + "$"
 		chars := []rune(marked)
@@ -483,37 +481,75 @@ func scoreInLang(word, lang string) float64 {
 	return currentModel.English.Score(word)
 }
 
-func ShouldConvertWord(wordCurrent, wordOther, currentLang string, threshold float64) bool {
-	wc := strings.ToLower(wordCurrent)
-	wo := strings.ToLower(wordOther)
+var forceRuShort = map[string]bool{"не": true, "да": true, "ну": true, "на": true, "по": true, "мы": true, "вы": true, "ты": true, "за": true, "до": true, "из": true, "он": true, "об": true, "от": true, "то": true, "же": true, "но": true, "со": true, "их": true, "им": true, "ей": true, "как": true, "так": true, "что": true, "где": true, "кто": true, "там": true, "тут": true, "все": true}
+var forceEnShort = map[string]bool{"it": true, "is": true, "he": true, "we": true, "be": true, "me": true, "do": true, "go": true, "ok": true, "no": true, "to": true, "if": true, "of": true, "in": true, "on": true, "at": true, "or": true, "as": true, "my": true, "by": true, "hi": true}
+var forceRuChar = map[string]bool{"в": true, "с": true, "о": true, "а": true, "и": true, "у": true, "к": true, "я": true}
+var forceEnChar = map[string]bool{"a": true, "i": true}
 
-	if len(wc) < 2 || commonWords[wc] {
+func ShouldConvertWord(wordCurrent, wordOther, currentLang, lastFinalLang string, threshold float64) bool {
+	// Принимаем грязные строки, чтобы не терять оригинальную длину (например, ;t = 2 символа)
+	wcRaw := strings.ToLower(wordCurrent)
+	woRaw := strings.ToLower(wordOther)
+
+	if len(wcRaw) == 1 {
+		if currentLang == "en" && lastFinalLang == "ru" && forceRuChar[woRaw] {
+			return true
+		}
+		if currentLang == "ru" && lastFinalLang == "en" && forceEnChar[woRaw] {
+			return true
+		}
 		return false
 	}
-	isRu := (currentLang == "ru")
-	if currentModel == nil {
-		return IsImpossible(wc) && !IsImpossible(wo)
-	}
-	if currentModel.KnownWords[wc] {
+
+	if len(wcRaw) < 2 {
 		return false
 	}
-	if currentModel.KnownWords[wo] {
+
+	otherLang := "en"
+	if currentLang == "en" {
+		otherLang = "ru"
+	}
+
+	// ⚡ Очищаем от мусора только для запросов в словари
+	wcClean := cleanWord(wcRaw, currentLang)
+	woClean := cleanWord(woRaw, otherLang)
+
+	if commonWords[wcClean] {
+		return false
+	}
+
+	if currentLang == "en" && forceRuShort[woClean] && !forceEnShort[wcClean] {
 		return true
 	}
-	if IsHardTypo(wc, isRu, true) && !IsHardTypo(wo, !isRu, true) {
+	if currentLang == "ru" && forceEnShort[woClean] && !forceRuShort[wcClean] {
+		return true
+	}
+
+	isRu := (currentLang == "ru")
+	if currentModel == nil {
+		return IsImpossible(wcClean) && !IsImpossible(woClean)
+	}
+	if currentModel.KnownWords[wcClean] {
+		return false
+	}
+	if currentModel.KnownWords[woClean] {
+		return true
+	}
+
+	if IsHardTypo(wcClean, isRu, true) && !IsHardTypo(woClean, !isRu, true) {
 		return true
 	}
 
 	var scoreCurrent, scoreOther float64
 	var physicalPathEn string
 	if isRu {
-		scoreCurrent = scoreInLang(wc, "ru")
-		scoreOther = scoreInLang(wo, "en")
-		physicalPathEn = wo
+		scoreCurrent = scoreInLang(wcClean, "ru")
+		scoreOther = scoreInLang(woClean, "en")
+		physicalPathEn = woRaw
 	} else {
-		scoreCurrent = scoreInLang(wc, "en")
-		scoreOther = scoreInLang(wo, "ru")
-		physicalPathEn = wc
+		scoreCurrent = scoreInLang(wcClean, "en")
+		scoreOther = scoreInLang(woClean, "ru")
+		physicalPathEn = wcRaw
 	}
 
 	avgJump := CalcAverageJump(physicalPathEn)

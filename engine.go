@@ -320,7 +320,7 @@ func processLiveTypo() {
 	}
 	wordEn, wordRu, hasUpper, hasLower, hasDigit, hasCapsLock := buildWordStrings(currentWord)
 	wLowerEn, wLowerRu := strings.ToLower(wordEn), strings.ToLower(wordRu)
-	cEn, cRu := cleanWord(wordEn), cleanWord(wordRu)
+	cEn, cRu := cleanWord(wordEn, "en"), cleanWord(wordRu, "ru")
 
 	for _, excLine := range strings.Split(exceptions, "\n") {
 		excLine = strings.TrimSpace(excLine)
@@ -454,7 +454,9 @@ func processWord(appendChar string, isManual bool) {
 
 	wordEn, wordRu, hasUpper, hasLower, hasDigit, hasCapsLock := buildWordStrings(wordData)
 	wLowerEn, wLowerRu := strings.ToLower(wordEn), strings.ToLower(wordRu)
-	cEn, cRu := cleanWord(wordEn), cleanWord(wordRu)
+
+	// Очищаем для проверки исключений
+	cEn, cRu := cleanWord(wordEn, "en"), cleanWord(wordRu, "ru")
 	isRu := osIsRussianLayout()
 
 	if isRu {
@@ -536,9 +538,6 @@ func processWord(appendChar string, isManual bool) {
 			return
 		}
 	}
-	if len(cEn) < 2 {
-		return
-	}
 
 	isFlag := strings.HasPrefix(wordEn, "-")
 	isPath := strings.HasPrefix(wordEn, "\\") || strings.HasPrefix(wordEn, "/")
@@ -566,7 +565,7 @@ func processWord(appendChar string, isManual bool) {
 		}
 	}
 
-	if len(cEn) >= 3 {
+	if len(wordEn) >= 3 {
 		dist := CalcAverageJump(wLowerEn)
 		visualWord := cEn
 		if isRu {
@@ -575,8 +574,9 @@ func processWord(appendChar string, isManual bool) {
 		addTopoRecord(visualWord, dist)
 	}
 
+	// ⚡ Передаем СЫРЫЕ слова (wordRu, wordEn) в ShouldConvertWord
 	if isRu {
-		if ShouldConvertWord(cRu, cEn, "ru", adjustedThreshold) {
+		if ShouldConvertWord(wordRu, wordEn, "ru", lastFinalLang, adjustedThreshold) {
 			finalEn := wordEn
 			if hasCapsLock {
 				finalEn = fixInvertedCaps(finalEn)
@@ -602,7 +602,7 @@ func processWord(appendChar string, isManual bool) {
 			}
 		}
 	} else {
-		if ShouldConvertWord(cEn, cRu, "en", adjustedThreshold) {
+		if ShouldConvertWord(wordEn, wordRu, "en", lastFinalLang, adjustedThreshold) {
 			finalRu := wordRu
 			if hasCapsLock {
 				finalRu = fixInvertedCaps(finalRu)

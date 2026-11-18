@@ -88,6 +88,7 @@ const (
 	KEY_RIGHTALT   = 100
 	KEY_PAUSE      = 119
 	KEY_LEFTMETA   = 125
+	KEY_RIGHTMETA  = 126
 
 	EVIOCGNAME_256 = 0x81004506
 	EVIOCGBIT_EV   = 0x80084520
@@ -130,6 +131,7 @@ var (
 	lShiftDown, rShiftDown bool
 	lCtrlDown, rCtrlDown   bool
 	lAltDown, rAltDown     bool
+	lMetaDown, rMetaDown   bool
 	capsLockState          bool
 	shiftReleased          bool = true
 )
@@ -488,7 +490,7 @@ func parseHotkeyLinux(hotkeyStr string) (code uint16, needShift bool, needAlt bo
 
 func isModifierLinux(code uint16) bool {
 	switch code {
-	case KEY_LEFTSHIFT, KEY_RIGHTSHIFT, KEY_LEFTCTRL, KEY_RIGHTCTRL, KEY_LEFTALT, KEY_RIGHTALT, KEY_CAPSLOCK, KEY_LEFTMETA:
+	case KEY_LEFTSHIFT, KEY_RIGHTSHIFT, KEY_LEFTCTRL, KEY_RIGHTCTRL, KEY_LEFTALT, KEY_RIGHTALT, KEY_CAPSLOCK, KEY_LEFTMETA, KEY_RIGHTMETA:
 		return true
 	}
 	return false
@@ -518,6 +520,10 @@ func handleLinuxKeyEvent(ev linuxInputEvent) {
 			lAltDown = false
 		case KEY_RIGHTALT:
 			rAltDown = false
+		case KEY_LEFTMETA:
+			lMetaDown = false
+		case KEY_RIGHTMETA:
+			rMetaDown = false
 		}
 		return
 	}
@@ -538,6 +544,10 @@ func handleLinuxKeyEvent(ev linuxInputEvent) {
 		lAltDown = true
 	case KEY_RIGHTALT:
 		rAltDown = true
+	case KEY_LEFTMETA:
+		lMetaDown = true
+	case KEY_RIGHTMETA:
+		rMetaDown = true
 	case KEY_CAPSLOCK:
 		capsLockState = !capsLockState
 	}
@@ -578,10 +588,16 @@ func handleLinuxKeyEvent(ev linuxInputEvent) {
 	isShift := lShiftDown || rShiftDown
 	isAlt := lAltDown || rAltDown
 	isCtrl := lCtrlDown || rCtrlDown
+	isMeta := lMetaDown || rMetaDown
 
-	if isCtrl && code != targetCode && code != caseCode {
-		return
+	// ⚡ Сброс слова при смене раскладки через модификаторы (Ctrl/Alt/Win)
+	if (isCtrl || isAlt || isMeta) && code != targetCode && code != caseCode {
+		EngineClearContext()
+		if isCtrl {
+			return
+		}
 	}
+
 	if code == caseCode && isShift == caseNeedShift && isAlt == caseNeedAlt {
 		go EngineHandleCaseToggle()
 		return

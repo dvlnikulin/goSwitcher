@@ -26,20 +26,17 @@ var fullRuToEn = map[rune]rune{
 }
 
 func isBoundaryEn(charEn string) bool {
-	return strings.ContainsAny(charEn, "\"'()[]{}<>=:;,!?%^&*|~+#")
+	// ⚡ Убрали [ ] ; ' , . ` — теперь программа не ломает русские слова об английскую пунктуацию
+	return strings.ContainsAny(charEn, "()!@#$%^&*-=_+\\|/?")
 }
 
 func isITPattern(wordEn string) bool {
 	if strings.Contains(wordEn, "_") {
 		return true
 	}
-	if strings.Contains(wordEn, "-") {
-		parts := strings.Split(wordEn, "-")
-		if len(parts) > 1 && parts[0] != "" && parts[len(parts)-1] != "" {
-			return true
-		}
-	}
 	hasDigit, hasDot := false, false
+	dashCount := strings.Count(wordEn, "-")
+
 	for _, r := range wordEn {
 		if r >= '0' && r <= '9' {
 			hasDigit = true
@@ -48,14 +45,28 @@ func isITPattern(wordEn string) bool {
 			hasDot = true
 		}
 	}
+	if dashCount > 1 {
+		return true
+	}
+	if dashCount == 1 && hasDigit {
+		return true
+	}
 	return hasDigit && hasDot
 }
 
-func cleanWord(word string) string {
+// ⚡ Теперь очистка слова понимает, какой язык мы чистим
+func cleanWord(word string, lang string) string {
 	var res strings.Builder
 	for _, r := range word {
-		if unicode.IsLetter(r) {
-			res.WriteRune(unicode.ToLower(r))
+		r = unicode.ToLower(r)
+		if lang == "ru" {
+			if unicode.Is(unicode.Cyrillic, r) || r == '-' {
+				res.WriteRune(r)
+			}
+		} else {
+			if (r >= 'a' && r <= 'z') || r == '-' {
+				res.WriteRune(r)
+			}
 		}
 	}
 	return res.String()
