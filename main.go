@@ -22,43 +22,53 @@ var htmlContent embed.FS
 //go:embed icon.ico
 var iconData []byte
 
-// ⚡ РАСШИРЕННАЯ СТРУКТУРА: Синхронизирована с Web UI
 type AppSettings struct {
-	EnableAI     bool   `json:"enable_ai"`
-	Threshold    int    `json:"threshold"`
-	Hotkey       string `json:"hotkey"`
-	Exceptions   string `json:"exceptions"`
-	ForceConvert string `json:"force_convert"`
-	Blacklist    string `json:"blacklist"`
-	Autostart    bool   `json:"autostart"`
+	EnableAI        bool   `json:"enable_ai"`
+	Threshold       int    `json:"threshold"`
+	Hotkey          string `json:"hotkey"`
+	CaseHotkey      string `json:"case_hotkey"` // ⚡ Хоткей смены регистра
+	Exceptions      string `json:"exceptions"`
+	ForceConvert    string `json:"force_convert"`
+	Blacklist       string `json:"blacklist"`
+	Autostart       bool   `json:"autostart"`
+	CustomVocab     string `json:"custom_vocab"`
+	BlockPaths      bool   `json:"block_paths"`
+	BlockFlags      bool   `json:"block_flags"`
+	UseMarkov       bool   `json:"use_markov"`
+	LiveTypoEnabled bool   `json:"live_typo_enabled"`
+	LiveTypoChar    int    `json:"live_typo_char"`
+	TrainingLimit   int    `json:"training_limit"`
+	LaplacePenalty  int    `json:"laplace_penalty"`
+}
 
-	// Вкладка 2: Память
-	CustomVocab string `json:"custom_vocab"`
+type AppStats struct {
+	LayoutCorrections int `json:"layout_corrections"`
+	TypoCorrections   int `json:"typo_corrections"`
+	SavedKeystrokes   int `json:"saved_keystrokes"`
+	UndoCount         int `json:"undo_count"`
+}
 
-	// Вкладка 3: Фильтры
-	BlockPaths bool `json:"block_paths"`
-	BlockFlags bool `json:"block_flags"`
-	UseMarkov  bool `json:"use_markov"`
-
-	// Вкладка 4: Advanced
-	LiveTypoEnabled bool `json:"live_typo_enabled"`
-	LiveTypoChar    int  `json:"live_typo_char"`
-	TrainingLimit   int  `json:"training_limit"`
-	LaplacePenalty  int  `json:"laplace_penalty"`
+type TopoRecord struct {
+	Word     string  `json:"word"`
+	Distance float64 `json:"distance"`
 }
 
 var (
 	settings      AppSettings
 	settingsMutex sync.RWMutex
+	stats         AppStats
+	statsMutex    sync.RWMutex
+	topoHistory   []TopoRecord
+	topoMutex     sync.RWMutex
+	keyHeatmap    map[string]int
+	heatmapMutex  sync.RWMutex
 )
 
 func enforceSingleInstance() {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	procCreateMutex := kernel32.NewProc("CreateMutexW")
-
 	mutexName, _ := syscall.UTF16PtrFromString("GoSwitcher_Unique_Mutex")
 	handle, _, err := procCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
-
 	if handle == 0 || err == syscall.Errno(183) {
 		os.Exit(0)
 	}
@@ -72,11 +82,11 @@ func getAppDir() string {
 func logDebug(format string, v ...interface{}) {}
 
 func loadSettings() {
-	// Значения по умолчанию (с учетом твоего окружения)
 	settings = AppSettings{
 		EnableAI:        true,
 		Threshold:       80,
 		Hotkey:          "pause",
+		CaseHotkey:      "shift+pause",
 		Exceptions:      "",
 		ForceConvert:    "",
 		Blacklist:       "zed.exe\ncode.exe\nwindowsterminal.exe\nwinbox.exe\nvmware.exe\nvirtualbox.exe\ngenshinimpact.exe\nbg3.exe\nbg3_dx11.exe",
@@ -116,6 +126,114 @@ func saveSettings(newSettings AppSettings) {
 	}
 }
 
+func loadStats() {
+	data, err := os.ReadFile(filepath.Join(getAppDir(), "stats.json"))
+	if err == nil {
+		json.Unmarshal(data, &stats)
+	}
+}
+
+func saveStats() {
+	statsMutex.RLock()
+	data, _ := json.MarshalIndent(stats, "", "  ")
+	statsMutex.RUnlock()
+	os.WriteFile(filepath.Join(getAppDir(), "stats.json"), data, 0644)
+}
+
+func loadHeatmap() {
+	keyHeatmap = make(map[string]int)
+	data, err := os.ReadFile(filepath.Join(getAppDir(), "heatmap.json"))
+	if err == nil {
+		json.Unmarshal(data, &keyHeatmap)
+	}
+}
+
+func saveHeatmap() {
+	heatmapMutex.RLock()
+	data, _ := json.MarshalIndent(keyHeatmap, "", "  ")
+	heatmapMutex.RUnlock()
+	os.WriteFile(filepath.Join(getAppDir(), "heatmap.json"), data, 0644)
+}
+
+func recordHeatmapError(physicalWordEn string) {
+	if len(physicalWordEn) == 0 {
+		return
+	}
+	heatmapMutex.Lock()
+	if keyHeatmap == nil {
+		keyHeatmap = make(map[string]int)
+	}
+	for _, r := range physicalWordEn {
+		if r >= 'a' && r <= 'z' || r == ';' || r == '\'' || r == ',' || r == '.' || r == '[' || r == ']' {
+			keyHeatmap[string(r)]++
+		}
+	}
+	heatmapMutex.Unlock()
+	go saveHeatmap()
+}
+
+func revertHeatmapError(physicalWordEn string) {
+	if len(physicalWordEn) == 0 {
+		return
+	}
+	heatmapMutex.Lock()
+	if keyHeatmap != nil {
+		for _, r := range physicalWordEn {
+			k := string(r)
+			if keyHeatmap[k] > 0 {
+				keyHeatmap[k]--
+			}
+		}
+	}
+	heatmapMutex.Unlock()
+	go saveHeatmap()
+}
+
+func incrementLayoutCorrection(wordLength int) {
+	statsMutex.Lock()
+	stats.LayoutCorrections++
+	stats.SavedKeystrokes += wordLength * 2
+	statsMutex.Unlock()
+	go saveStats()
+}
+
+func incrementTypoCorrection(wordLength int) {
+	statsMutex.Lock()
+	stats.TypoCorrections++
+	stats.SavedKeystrokes += wordLength
+	statsMutex.Unlock()
+	go saveStats()
+}
+
+func incrementUndoCount(wordLength int, switchedLang bool) {
+	statsMutex.Lock()
+	stats.UndoCount++
+	if switchedLang {
+		stats.SavedKeystrokes -= wordLength * 2
+	} else {
+		stats.SavedKeystrokes -= wordLength
+	}
+	if stats.SavedKeystrokes < 0 {
+		stats.SavedKeystrokes = 0
+	}
+	if switchedLang && stats.LayoutCorrections > 0 {
+		stats.LayoutCorrections--
+	} else if !switchedLang && stats.TypoCorrections > 0 {
+		stats.TypoCorrections--
+	}
+	statsMutex.Unlock()
+	go saveStats()
+}
+
+func addTopoRecord(word string, dist float64) {
+	topoMutex.Lock()
+	defer topoMutex.Unlock()
+	topoHistory = append([]TopoRecord{{Word: word, Distance: dist}}, topoHistory...)
+	if len(topoHistory) > 12 {
+		topoHistory = topoHistory[:12]
+	}
+}
+
 func main() {
 	learnFlag := flag.Bool("learn", false, "Сгенерировать model.json из txt файлов")
 	flag.Parse()
@@ -126,9 +244,11 @@ func main() {
 	}
 
 	enforceSingleInstance()
-
 	loadSettings()
+	loadStats()
+	loadHeatmap()
 	loadModel()
+
 	go startWebServer()
 	go startHook()
 
@@ -153,6 +273,65 @@ func startWebServer() {
 			var s AppSettings
 			json.NewDecoder(r.Body).Decode(&s)
 			saveSettings(s)
+			w.WriteHeader(http.StatusOK)
+		}
+	})
+
+	http.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		statsMutex.RLock()
+		currentStats := stats
+		statsMutex.RUnlock()
+
+		topoMutex.RLock()
+		currentTopo := make([]TopoRecord, len(topoHistory))
+		copy(currentTopo, topoHistory)
+		topoMutex.RUnlock()
+
+		heatmapMutex.RLock()
+		currentHeat := make(map[string]int, len(keyHeatmap))
+		for k, v := range keyHeatmap {
+			currentHeat[k] = v
+		}
+		heatmapMutex.RUnlock()
+
+		response := struct {
+			LayoutCorrections int            `json:"layout_corrections"`
+			TypoCorrections   int            `json:"typo_corrections"`
+			SavedKeystrokes   int            `json:"saved_keystrokes"`
+			UndoCount         int            `json:"undo_count"`
+			Topography        []TopoRecord   `json:"topography"`
+			Heatmap           map[string]int `json:"heatmap"`
+		}{
+			LayoutCorrections: currentStats.LayoutCorrections,
+			TypoCorrections:   currentStats.TypoCorrections,
+			SavedKeystrokes:   currentStats.SavedKeystrokes,
+			UndoCount:         currentStats.UndoCount,
+			Topography:        currentTopo,
+			Heatmap:           currentHeat,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	})
+
+	http.HandleFunc("/api/retrain", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			err := TrainModel("words_ru.txt", "words_en.txt")
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			loadModel()
+			w.WriteHeader(http.StatusOK)
+		}
+	})
+
+	http.HandleFunc("/api/reset_heatmap", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			heatmapMutex.Lock()
+			keyHeatmap = make(map[string]int)
+			heatmapMutex.Unlock()
+			go saveHeatmap()
 			w.WriteHeader(http.StatusOK)
 		}
 	})

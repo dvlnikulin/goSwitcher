@@ -6,156 +6,84 @@
     <title>GoSwitcher Dashboard</title>
     <style>
         :root {
-            --bg-base: #181825;
-            --bg-surface: #1e1e2e;
-            --bg-surface-hover: #313244;
-            --primary: #89b4fa;
-            --primary-hover: #b4befe;
-            --text-main: #cdd6f4;
-            --text-muted: #a6adc8;
-            --border: #45475a;
-            --success: #a6e3a1;
+            --bg-base: #181825; --bg-surface: #1e1e2e; --bg-surface-hover: #313244;
+            --primary: #89b4fa; --primary-hover: #b4befe;
+            --text-main: #cdd6f4; --text-muted: #a6adc8; --border: #45475a;
+            --success: #a6e3a1; --danger: #f38ba8; --warning: #f9e2af;
         }
 
-        body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background-color: var(--bg-base);
-            color: var(--text-main);
-            margin: 0;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-base); color: var(--text-main); margin: 0; display: flex; height: 100vh; overflow: hidden; }
 
-        /* Sidebar Tabs */
-        .sidebar {
-            width: 250px;
-            background-color: var(--bg-surface);
-            border-right: 1px solid var(--border);
-            padding: 20px 0;
-            display: flex;
-            flex-direction: column;
-        }
-        .sidebar-header {
-            padding: 0 20px 20px 20px;
-            font-size: 20px;
-            font-weight: bold;
-            color: var(--primary);
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 10px;
-        }
-        .tab-btn {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            text-align: left;
-            padding: 15px 20px;
-            font-size: 15px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
+        .sidebar { width: 250px; background-color: var(--bg-surface); border-right: 1px solid var(--border); padding: 20px 0; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 0 20px 20px 20px; font-size: 20px; font-weight: bold; color: var(--primary); border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+        .tab-btn { background: none; border: none; color: var(--text-muted); text-align: left; padding: 15px 20px; font-size: 15px; cursor: pointer; transition: all 0.2s; }
         .tab-btn:hover { background-color: var(--bg-surface-hover); color: var(--text-main); }
-        .tab-btn.active {
-            background-color: var(--bg-surface-hover);
-            color: var(--primary);
-            border-right: 3px solid var(--primary);
-        }
+        .tab-btn.active { background-color: var(--bg-surface-hover); color: var(--primary); border-right: 3px solid var(--primary); }
 
-        /* Content Area */
-        .content {
-            flex: 1;
-            padding: 30px 40px;
-            overflow-y: auto;
-            position: relative;
-        }
+        .content { flex: 1; padding: 30px 40px; overflow-y: auto; position: relative; }
         .tab-content { display: none; animation: fadeIn 0.3s ease; }
         .tab-content.active { display: block; }
-
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Form Elements */
         h2 { margin-top: 0; margin-bottom: 20px; font-weight: 500; }
         .form-group { margin-bottom: 25px; }
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 14px;
-            color: var(--text-muted);
-        }
-
-        input[type="text"], input[type="number"], select, textarea {
-            width: 100%;
-            max-width: 600px;
-            background-color: var(--bg-base);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            padding: 10px 12px;
-            border-radius: 6px;
-            font-family: inherit;
-            font-size: 14px;
-            transition: border-color 0.2s;
-        }
-        input[type="text"]:focus, select:focus, textarea:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
+        .form-group label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); }
+        input[type="text"], input[type="number"], select, textarea { width: 100%; max-width: 600px; background-color: var(--bg-base); border: 1px solid var(--border); color: var(--text-main); padding: 10px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; transition: border-color 0.2s; }
+        input[type="text"]:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
         textarea { resize: vertical; min-height: 120px; font-family: 'Consolas', monospace; }
 
-        .checkbox-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-        }
+        .checkbox-wrapper { display: flex; align-items: center; gap: 10px; cursor: pointer; }
         input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
-
         .slider-container { display: flex; align-items: center; gap: 15px; max-width: 600px; }
         input[type="range"] { flex: 1; accent-color: var(--primary); }
         .slider-val { background: var(--bg-surface); padding: 4px 8px; border-radius: 4px; font-size: 13px; min-width: 40px; text-align: center; }
 
-        /* Floating Save Bar */
-        .save-bar {
-            position: fixed;
-            bottom: 30px;
-            right: 40px;
-            background-color: var(--bg-surface);
-            border: 1px solid var(--border);
-            padding: 15px 25px;
-            border-radius: 8px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            transform: translateY(100px);
-            opacity: 0;
-            transition: all 0.3s ease;
-        }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background-color: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-3px); border-color: var(--primary); }
+        .stat-title { font-size: 14px; color: var(--text-muted); margin-bottom: 10px; }
+        .stat-value { font-size: 32px; font-weight: bold; color: var(--text-main); }
+        .stat-value.highlight { color: var(--success); }
+        .stat-value.danger { color: var(--danger); }
+        .stat-value.primary { color: var(--primary); }
+        .stat-value.warning { color: var(--warning); }
+
+        .heatmap-section { margin-top: 35px; padding-top: 20px; border-top: 1px solid var(--border); }
+        .heatmap-header { display: flex; justify-content: space-between; align-items: center; max-width: 680px; margin-bottom: 15px; }
+        .heatmap-header h3 { margin: 0; font-weight: 500; font-size: 16px; }
+        .kb-container { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; display: inline-flex; flex-direction: column; gap: 8px; user-select: none; }
+        .kb-row { display: flex; gap: 8px; }
+        .kb-row.row-2 { padding-left: 20px; }
+        .kb-row.row-3 { padding-left: 42px; }
+        .kb-key { width: 46px; height: 46px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; justify-content: space-between; padding: 5px 7px; box-sizing: border-box; position: relative; transition: all 0.3s; }
+        .kb-key-en { font-size: 13px; font-weight: bold; color: var(--text-main); text-transform: uppercase; line-height: 1; }
+        .kb-key-ru { font-size: 11px; color: var(--text-muted); align-self: flex-end; text-transform: lowercase; line-height: 1; }
+        .kb-badge { position: absolute; top: -6px; right: -6px; background: var(--danger); color: var(--bg-base); font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 10px; display: none; }
+
+        .topo-section { margin-top: 35px; padding-top: 20px; border-top: 1px solid var(--border); }
+        .topo-section h3 { margin-top: 0; margin-bottom: 15px; font-weight: 500; font-size: 16px; }
+        .topo-list { display: flex; gap: 12px; flex-wrap: wrap; max-width: 750px; }
+        .topo-chip { background-color: var(--bg-surface); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+        .topo-word { font-weight: bold; color: var(--text-main); }
+        .topo-dist { font-family: monospace; font-size: 13px; padding: 2px 6px; border-radius: 4px; background: var(--bg-base); font-weight: bold; }
+        .dist-danger { color: var(--danger); border-bottom: 2px solid var(--danger); }
+        .dist-success { color: var(--success); border-bottom: 2px solid var(--success); }
+        .dist-warning { color: var(--warning); border-bottom: 2px solid var(--warning); }
+
+        .tag-input-container { display: flex; gap: 10px; margin-bottom: 10px; max-width: 600px; }
+        .tag-input-container input { flex: 1; margin: 0; }
+        .tag-list { display: flex; flex-wrap: wrap; gap: 8px; max-width: 600px; padding: 12px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; min-height: 48px; box-sizing: border-box; }
+        .tag-chip { background: var(--bg-surface-hover); padding: 5px 10px; border-radius: 6px; display: flex; align-items: center; gap: 8px; font-size: 13px; border: 1px solid var(--border); }
+        .tag-chip button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-weight: bold; padding: 0; font-size: 14px; }
+        .tag-chip button:hover { color: var(--danger); }
+
+        .save-bar { position: fixed; bottom: 30px; right: 40px; background-color: var(--bg-surface); border: 1px solid var(--border); padding: 15px 25px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 20px; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; }
         .save-bar.visible { transform: translateY(0); opacity: 1; }
-
-        button.btn-save {
-            background-color: var(--primary);
-            color: var(--bg-base);
-            border: none;
-            padding: 10px 24px;
-            border-radius: 6px;
-            font-weight: bold;
-            font-size: 14px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
+        button.btn-save { background-color: var(--primary); color: var(--bg-base); border: none; padding: 10px 24px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; }
         button.btn-save:hover { background-color: var(--primary-hover); }
-
-        button.btn-action {
-            background-color: var(--bg-surface-hover);
-            color: var(--text-main);
-            border: 1px solid var(--border);
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            margin-top: 10px;
-        }
+        button.btn-action { background-color: var(--bg-surface-hover); color: var(--text-main); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
         button.btn-action:hover { border-color: var(--primary); }
-
+        button.btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
         .toast { color: var(--success); font-size: 14px; font-weight: 500; display: none; }
     </style>
 </head>
@@ -163,36 +91,66 @@
 
     <div class="sidebar">
         <div class="sidebar-header">GoSwitcher</div>
-        <button class="tab-btn active" onclick="switchTab('general')">🎛️ Основные</button>
-        <button class="tab-btn" onclick="switchTab('memory')">🧠 Память ИИ</button>
+        <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Статистика</button>
+        <button class="tab-btn" onclick="switchTab('general')">🎛️ Основные</button>
+        <button class="tab-btn" onclick="switchTab('memory')">🧠 Словарь ИИ</button>
         <button class="tab-btn" onclick="switchTab('filters')">🛡️ Фильтры</button>
         <button class="tab-btn" onclick="switchTab('advanced')">⚙️ Ядро (Advanced)</button>
     </div>
 
     <div class="content">
+        <div id="dashboard" class="tab-content active">
+            <h2>Эффективность работы</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-title">Сэкономлено нажатий</div>
+                    <div class="stat-value highlight" id="stat_saved">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Точность ИИ</div>
+                    <div class="stat-value primary" id="stat_accuracy">100%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Исправлено раскладок</div>
+                    <div class="stat-value" id="stat_layout">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Умных автокоррекций</div>
+                    <div class="stat-value warning" id="stat_typo">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Отменено (Shift)</div>
+                    <div class="stat-value danger" id="stat_undo">0</div>
+                </div>
+            </div>
+
+            <div class="heatmap-section">
+                <div class="heatmap-header">
+                    <h3>Тепловая карта моторики (Адаптивная QWERTY-сетка)</h3>
+                    <button type="button" class="btn-action" onclick="resetHeatmap()">Сбросить карту</button>
+                </div>
+                <div class="kb-container" id="kb_heatmap"></div>
+                <p style="color: var(--text-muted); font-size: 12px; margin-top: 10px;">
+                    Клавиши с высокой частотой ошибок подсвечиваются красным. ИИ сжимает виртуальную дистанцию для них, ускоряя перехват.
+                </p>
+            </div>
+
+            <div class="topo-section">
+                <h3>Дистанция последних слов</h3>
+                <div class="topo-list" id="topo_list">
+                    <span style="color: var(--text-muted); font-size: 14px;">Начните печатать, чтобы увидеть анализ дистанций...</span>
+                </div>
+            </div>
+        </div>
+
         <form id="settingsForm">
-
-            <!-- Вкладка 1: Основные -->
-            <div id="general" class="tab-content active">
+            <div id="general" class="tab-content">
                 <h2>Основные настройки</h2>
-
+                <div class="form-group"><label class="checkbox-wrapper"><input type="checkbox" name="enable_ai"> Включить автопереключение (AI Engine)</label></div>
+                <div class="form-group"><label class="checkbox-wrapper"><input type="checkbox" name="autostart"> Запускать вместе с Windows</label></div>
                 <div class="form-group">
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" name="enable_ai" id="enable_ai">
-                        Включить автопереключение (AI Engine)
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" name="autostart" id="autostart">
-                        Запускать вместе с Windows
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label>Клавиша принудительного переключения (Hotkey)</label>
-                    <select name="hotkey" id="hotkey">
+                    <label>Клавиша принудительного перевода раскладки (Hotkey)</label>
+                    <select name="hotkey">
                         <option value="pause">Pause / Break</option>
                         <option value="f12">F12</option>
                         <option value="f9">F9</option>
@@ -200,100 +158,80 @@
                         <option value="scrolllock">Scroll Lock</option>
                     </select>
                 </div>
-
+                <div class="form-group">
+                    <label>Циклическая смена регистра слова (нижний → ВЕРХНИЙ → Заглавный)</label>
+                    <select name="case_hotkey">
+                        <option value="shift+pause">Shift + Pause / Break</option>
+                        <option value="alt+pause">Alt + Pause / Break</option>
+                        <option value="shift+f12">Shift + F12</option>
+                        <option value="alt+f12">Alt + F12</option>
+                        <option value="scrolllock">Scroll Lock</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label>Порог уверенности ИИ (Threshold)</label>
                     <div class="slider-container">
                         <input type="range" name="threshold" id="threshold" min="0" max="100">
                         <span class="slider-val" id="threshold_val">80</span>
                     </div>
-                    <label style="font-size: 12px; margin-top: 5px;">Меньше = чаще переключает. Больше = строже проверки.</label>
                 </div>
             </div>
 
-            <!-- Вкладка 2: Память -->
             <div id="memory" class="tab-content">
-                <h2>Память и Обучение</h2>
-
-                <div class="form-group">
-                    <label>Слова-исключения (Никогда не переводить)</label>
-                    <textarea name="exceptions" id="exceptions" placeholder="promt&#10;зкщье"></textarea>
-                    <label style="font-size: 12px; margin-top: 5px;">Пополняется автоматически при отмене через двойной Shift.</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">Управление словарями</h2>
+                    <button type="button" id="btn_retrain" class="btn-action" onclick="retrainModel()" style="margin: 0;">🔄 Переобучить ИИ</button>
                 </div>
 
                 <div class="form-group">
-                    <label>Принудительные слова (Всегда переводить)</label>
-                    <textarea name="force_convert" id="force_convert" placeholder="users&#10;docker"></textarea>
-                    <label style="font-size: 12px; margin-top: 5px;">Пополняется автоматически при ручном переводе через Hotkey.</label>
+                    <label>Слова-исключения (Никогда не переводить)</label>
+                    <div class="tag-input-container">
+                        <input type="text" id="input_exceptions" placeholder="Напишите слово и нажмите Enter..." onkeypress="if(event.key === 'Enter') { event.preventDefault(); addTag('exceptions'); }">
+                        <button type="button" class="btn-action" style="margin:0;" onclick="addTag('exceptions')">Добавить</button>
+                    </div>
+                    <div class="tag-list" id="list_exceptions"></div>
+                    <input type="hidden" name="exceptions" id="hidden_exceptions">
+                </div>
+
+                <div class="form-group">
+                    <label>Принудительные слова (Всегда переводить без ИИ)</label>
+                    <div class="tag-input-container">
+                        <input type="text" id="input_force_convert" placeholder="Напишите слово и нажмите Enter..." onkeypress="if(event.key === 'Enter') { event.preventDefault(); addTag('force_convert'); }">
+                        <button type="button" class="btn-action" style="margin:0;" onclick="addTag('force_convert')">Добавить</button>
+                    </div>
+                    <div class="tag-list" id="list_force_convert"></div>
+                    <input type="hidden" name="force_convert" id="hidden_force_convert">
                 </div>
 
                 <div class="form-group">
                     <label>Словарь DevOps (Custom Vocabulary)</label>
-                    <textarea name="custom_vocab" id="custom_vocab" placeholder="kubectl&#10;mikrotik"></textarea>
-                    <label style="font-size: 12px; margin-top: 5px;">Слова, которые будут внедрены в модель при следующем переобучении.</label>
-                    <button type="button" class="btn-action" onclick="alert('Функция переобучения из UI будет добавлена в бэкенд позже')">🔄 Запустить переобучение</button>
+                    <div class="tag-input-container">
+                        <input type="text" id="input_custom_vocab" placeholder="Напишите термин и нажмите Enter..." onkeypress="if(event.key === 'Enter') { event.preventDefault(); addTag('custom_vocab'); }">
+                        <button type="button" class="btn-action" style="margin:0;" onclick="addTag('custom_vocab')">Добавить</button>
+                    </div>
+                    <div class="tag-list" id="list_custom_vocab"></div>
+                    <input type="hidden" name="custom_vocab" id="hidden_custom_vocab">
                 </div>
             </div>
 
-            <!-- Вкладка 3: Фильтры -->
             <div id="filters" class="tab-content">
                 <h2>Фильтры и Контекст</h2>
-
                 <div class="form-group">
                     <label>Черный список процессов (Blacklist)</label>
-                    <textarea name="blacklist" id="blacklist" placeholder="zed.exe&#10;code.exe"></textarea>
-                    <label style="font-size: 12px; margin-top: 5px;">Процессы, в которых перехват клавиатуры полностью отключен.</label>
+                    <textarea name="blacklist" placeholder="zed.exe&#10;code.exe"></textarea>
                 </div>
-
-                <div class="form-group">
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" name="block_paths" id="block_paths">
-                        DevOps: Блокировать перевод путей (начинаются с \ или /)
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" name="block_flags" id="block_flags">
-                        DevOps: Блокировать перевод флагов консоли (начинаются с -)
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" name="use_markov" id="use_markov">
-                        Межсловная память: Учитывать язык предыдущего слова (Марковские цепи)
-                    </label>
-                </div>
+                <div class="form-group"><label class="checkbox-wrapper"><input type="checkbox" name="block_paths"> DevOps: Блокировать перевод путей (\ или /)</label></div>
+                <div class="form-group"><label class="checkbox-wrapper"><input type="checkbox" name="block_flags"> DevOps: Блокировать перевод флагов (- или --)</label></div>
+                <div class="form-group"><label class="checkbox-wrapper"><input type="checkbox" name="use_markov"> Межсловная память: Марковские цепи</label></div>
             </div>
 
-            <!-- Вкладка 4: Advanced -->
             <div id="advanced" class="tab-content">
                 <h2>Настройки Ядра ИИ</h2>
-
-                <div class="form-group">
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" name="live_typo_enabled" id="live_typo_enabled">
-                        LiveTypo: Переключение на лету (до нажатия пробела)
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label>Символ срабатывания LiveTypo (от 3 до 6)</label>
-                    <input type="number" name="live_typo_char" id="live_typo_char" min="3" max="6" style="max-width: 100px;">
-                </div>
-
-                <div class="form-group">
-                    <label>Лимит словаря при обучении (Training Limit)</label>
-                    <input type="number" name="training_limit" id="training_limit" style="max-width: 200px;">
-                </div>
-
-                <div class="form-group">
-                    <label>Штраф Лапласа за неизвестные триграммы (Laplace Penalty)</label>
-                    <input type="number" name="laplace_penalty" id="laplace_penalty" style="max-width: 200px;">
-                </div>
+                <div class="form-group"><label class="checkbox-wrapper"><input type="checkbox" name="live_typo_enabled"> LiveTypo: Переключение на лету</label></div>
+                <div class="form-group"><label>Символ срабатывания LiveTypo (от 3 до 6)</label><input type="number" name="live_typo_char" min="3" max="6" style="max-width: 100px;"></div>
+                <div class="form-group"><label>Лимит словаря при обучении (Training Limit)</label><input type="number" name="training_limit" style="max-width: 200px;"></div>
+                <div class="form-group"><label>Штраф Лапласа за неизвестные триграммы</label><input type="number" name="laplace_penalty" style="max-width: 200px;"></div>
             </div>
-
         </form>
     </div>
 
@@ -308,7 +246,91 @@
         const thresholdInput = document.getElementById('threshold');
         const thresholdVal = document.getElementById('threshold_val');
 
-        // Логика переключения вкладок
+        const kbLayout = [
+            [['q','й'], ['w','ц'], ['e','у'], ['r','к'], ['t','е'], ['y','н'], ['u','г'], ['i','ш'], ['o','щ'], ['p','з'], ['[','х'], [']','ъ']],
+            [['a','ф'], ['s','ы'], ['d','в'], ['f','а'], ['g','п'], ['h','р'], ['j','о'], ['k','л'], ['l','д'], [';','ж'], ['\'','э']],
+            [['z','я'], ['x','ч'], ['c','с'], ['v','м'], ['b','и'], ['n','т'], ['m','ь'], [',','б'], ['.','ю']]
+        ];
+
+        function initKeyboard() {
+            const container = document.getElementById('kb_heatmap');
+            kbLayout.forEach((row, rIdx) => {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = `kb-row row-${rIdx + 1}`;
+                row.forEach(([en, ru]) => {
+                    const keyDiv = document.createElement('div');
+                    keyDiv.className = 'kb-key';
+                    keyDiv.id = `key_${en}`;
+                    keyDiv.innerHTML = `<span class="kb-badge" id="badge_${en}">0</span><span class="kb-key-en">${en}</span><span class="kb-key-ru">${ru}</span>`;
+                    rowDiv.appendChild(keyDiv);
+                });
+                container.appendChild(rowDiv);
+            });
+        }
+        initKeyboard();
+
+        function updateHeatmap(heatmapData) {
+            let maxVal = 1;
+            if (heatmapData) {
+                for (const k in heatmapData) {
+                    if (heatmapData[k] > maxVal) maxVal = heatmapData[k];
+                }
+            }
+            kbLayout.flat().forEach(([en]) => {
+                const keyEl = document.getElementById(`key_${en}`);
+                const badgeEl = document.getElementById(`badge_${en}`);
+                const count = (heatmapData && heatmapData[en]) ? heatmapData[en] : 0;
+
+                if (count > 0) {
+                    const ratio = Math.min(1, count / maxVal);
+                    const alpha = 0.15 + ratio * 0.45;
+                    keyEl.style.backgroundColor = `rgba(243, 139, 168, ${alpha})`;
+                    keyEl.style.borderColor = `rgba(243, 139, 168, ${0.4 + ratio * 0.6})`;
+                    badgeEl.textContent = count;
+                    badgeEl.style.display = 'block';
+                } else {
+                    keyEl.style.backgroundColor = 'var(--bg-base)';
+                    keyEl.style.borderColor = 'var(--border)';
+                    badgeEl.style.display = 'none';
+                }
+            });
+        }
+
+        function resetHeatmap() {
+            fetch('/api/reset_heatmap', { method: 'POST' }).then(() => fetchStats());
+        }
+
+        let tagData = { exceptions: [], force_convert: [], custom_vocab: [] };
+
+        function renderTags(listId) {
+            const container = document.getElementById('list_' + listId);
+            container.innerHTML = '';
+            tagData[listId].forEach((word, index) => {
+                const chip = document.createElement('div');
+                chip.className = 'tag-chip';
+                chip.innerHTML = `<span>${word}</span> <button type="button" onclick="removeTag('${listId}', ${index})">×</button>`;
+                container.appendChild(chip);
+            });
+            document.getElementById('hidden_' + listId).value = tagData[listId].join('\n');
+        }
+
+        function addTag(listId) {
+            const input = document.getElementById('input_' + listId);
+            const val = input.value.trim().toLowerCase();
+            if (val && !tagData[listId].includes(val)) {
+                tagData[listId].push(val);
+                renderTags(listId);
+                showSaveBar();
+            }
+            input.value = '';
+        }
+
+        function removeTag(listId, index) {
+            tagData[listId].splice(index, 1);
+            renderTags(listId);
+            showSaveBar();
+        }
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -316,13 +338,7 @@
             event.currentTarget.classList.add('active');
         }
 
-        // Обновление цифры на ползунке
-        thresholdInput.addEventListener('input', (e) => {
-            thresholdVal.textContent = e.target.value;
-            showSaveBar();
-        });
-
-        // Показ плавающей панели сохранения при любых изменениях
+        thresholdInput.addEventListener('input', (e) => { thresholdVal.textContent = e.target.value; showSaveBar(); });
         form.addEventListener('input', showSaveBar);
 
         function showSaveBar() {
@@ -330,48 +346,78 @@
             document.getElementById('toastMessage').style.display = 'none';
         }
 
-        // Загрузка настроек с Go-сервера
-        fetch('/api/settings')
-            .then(res => res.json())
-            .then(data => {
-                for (const key in data) {
-                    const el = form.elements[key];
-                    if (el) {
-                        if (el.type === 'checkbox') {
-                            el.checked = data[key];
-                        } else {
-                            el.value = data[key];
-                            if (key === 'threshold') thresholdVal.textContent = data[key];
-                        }
+        fetch('/api/settings').then(res => res.json()).then(data => {
+            for (const key in data) {
+                const el = form.elements[key];
+                if (el) {
+                    if (el.type === 'checkbox') el.checked = data[key];
+                    else if (key === 'exceptions' || key === 'force_convert' || key === 'custom_vocab') {
+                        tagData[key] = data[key] ? data[key].split('\n').filter(w => w.trim() !== '') : [];
+                        renderTags(key);
+                    } else {
+                        el.value = data[key];
+                        if (key === 'threshold') thresholdVal.textContent = data[key];
                     }
                 }
-            })
-            .catch(err => console.error('Ошибка загрузки настроек:', err));
+            }
+        });
 
-        // Сохранение настроек
         function saveSettings() {
             const data = {};
             Array.from(form.elements).forEach(el => {
                 if (el.name) {
-                    if (el.type === 'checkbox') {
-                        data[el.name] = el.checked;
-                    } else if (el.type === 'number' || el.type === 'range') {
-                        data[el.name] = parseInt(el.value) || 0;
-                    } else {
-                        data[el.name] = el.value;
-                    }
+                    if (el.type === 'checkbox') data[el.name] = el.checked;
+                    else if (el.type === 'number' || el.type === 'range') data[el.name] = parseInt(el.value) || 0;
+                    else data[el.name] = el.value;
                 }
             });
-
-            fetch('/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            }).then(() => {
-                document.getElementById('toastMessage').style.display = 'block';
-                setTimeout(() => saveBar.classList.remove('visible'), 2000);
-            }).catch(err => alert('Ошибка сохранения! Убедитесь, что GoSwitcher запущен.'));
+            fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                .then(() => { document.getElementById('toastMessage').style.display = 'block'; setTimeout(() => saveBar.classList.remove('visible'), 2000); });
         }
+
+        function retrainModel() {
+            const btn = document.getElementById('btn_retrain');
+            const orig = btn.innerText;
+            btn.innerText = '⏳ Идет обучение...';
+            btn.disabled = true;
+            fetch('/api/retrain', { method: 'POST' })
+                .then(res => { if(res.ok) alert('✅ Модель успешно переобучена!'); else alert('❌ Ошибка сборки модели.'); })
+                .catch(err => alert('Ошибка соединения с сервером.'))
+                .finally(() => { btn.innerText = orig; btn.disabled = false; });
+        }
+
+        function renderTopography(items) {
+            const container = document.getElementById('topo_list');
+            if (!items || items.length === 0) return;
+            container.innerHTML = '';
+            items.forEach(item => {
+                let distClass = 'dist-success';
+                if (item.distance < 2.0) distClass = 'dist-danger';
+                else if (item.distance > 4.5) distClass = 'dist-warning';
+
+                const chip = document.createElement('div');
+                chip.className = 'topo-chip';
+                chip.innerHTML = `<span class="topo-word">${item.word}</span> <span class="topo-dist ${distClass}">${item.distance.toFixed(2)}</span>`;
+                container.appendChild(chip);
+            });
+        }
+
+        function fetchStats() {
+            fetch('/api/stats').then(res => res.json()).then(stats => {
+                document.getElementById('stat_saved').textContent = stats.saved_keystrokes || 0;
+                document.getElementById('stat_layout').textContent = stats.layout_corrections || 0;
+                document.getElementById('stat_typo').textContent = stats.typo_corrections || 0;
+                document.getElementById('stat_undo').textContent = stats.undo_count || 0;
+
+                let total = (stats.layout_corrections || 0) + (stats.typo_corrections || 0);
+                let accuracy = total > 0 ? Math.max(0, ((total - (stats.undo_count || 0)) / total) * 100).toFixed(1) : 100.0;
+                document.getElementById('stat_accuracy').textContent = accuracy + '%';
+
+                renderTopography(stats.topography);
+                updateHeatmap(stats.heatmap);
+            });
+        }
+        fetchStats(); setInterval(fetchStats, 3000);
     </script>
 </body>
 </html>

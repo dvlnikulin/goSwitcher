@@ -26,9 +26,17 @@ var (
 	procGetKeyboardLayoutList     = user32.NewProc("GetKeyboardLayoutList")
 	procGetKeyState               = user32.NewProc("GetKeyState")
 	procSendInput                 = user32.NewProc("SendInput")
+	procOpenClipboard             = user32.NewProc("OpenClipboard")
+	procCloseClipboard            = user32.NewProc("CloseClipboard")
+	procEmptyClipboard            = user32.NewProc("EmptyClipboard")
+	procGetClipboardData          = user32.NewProc("GetClipboardData")
+	procSetClipboardData          = user32.NewProc("SetClipboardData")
 	procOpenProcess               = kernel32.NewProc("OpenProcess")
 	procQueryFullProcessImageName = kernel32.NewProc("QueryFullProcessImageNameW")
 	procCloseHandle               = kernel32.NewProc("CloseHandle")
+	procGlobalAlloc               = kernel32.NewProc("GlobalAlloc")
+	procGlobalLock                = kernel32.NewProc("GlobalLock")
+	procGlobalUnlock              = kernel32.NewProc("GlobalUnlock")
 
 	keyboardHook uintptr
 )
@@ -41,14 +49,25 @@ const (
 	WM_SYSKEYUP                       = 0x0105
 	WM_INPUTLANGCHANGEREQUEST         = 0x0050
 	VK_BACK                           = 0x08
-	VK_SPACE                          = 0x20
+	VK_TAB                            = 0x09
 	VK_RETURN                         = 0x0D
 	VK_SHIFT                          = 0x10
+	VK_CONTROL                        = 0x11
+	VK_MENU                           = 0x12
 	VK_CAPITAL                        = 0x14
+	VK_SPACE                          = 0x20
+	VK_LSHIFT                         = 0xA0
+	VK_RSHIFT                         = 0xA1
+	VK_LCONTROL                       = 0xA2
+	VK_RCONTROL                       = 0xA3
+	VK_LMENU                          = 0xA4
+	VK_RMENU                          = 0xA5
 	INPUT_KEYBOARD                    = 1
 	KEYEVENTF_KEYUP                   = 0x0002
 	KEYEVENTF_UNICODE                 = 0x0004
 	PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+	CF_UNICODETEXT                    = 13
+	GMEM_MOVEABLE                     = 0x0002
 )
 
 type KBDLLHOOKSTRUCT struct {
@@ -83,8 +102,10 @@ type KeyEvent struct {
 type CorrectionData struct {
 	OriginalFull  string
 	OriginalClean string
+	PhysicalEn    string
 	Corrected     string
 	AppendChar    string
+	SwitchedLang  bool
 	Timestamp     time.Time
 }
 
@@ -93,15 +114,15 @@ var (
 	isReplacing             uint32
 	lastWord                []KeyEvent
 	typedSpaceAfterLastWord bool
+	lastRenderedWord        string
+	lastRenderedSuffix      string
 	lastPid                 uint32
 	lastProcessName         string
-
-	lastAutoCorrection *CorrectionData
-	backspaceCount     int
-	lastShiftTime      time.Time
-	shiftReleased      bool = true
-
-	lastFinalLang string = "en"
+	lastAutoCorrection      *CorrectionData
+	backspaceCount          int
+	lastShiftTime           time.Time
+	shiftReleased           bool   = true
+	lastFinalLang           string = "en"
 )
 
 var vkToEn = map[uint32]string{
@@ -123,24 +144,248 @@ var vkToRuShift = map[uint32]string{
 	186: "Ж", 187: "+", 188: "Б", 189: "_", 190: "Ю", 191: ",", 192: "Ё", 219: "Х", 220: "/", 221: "Ъ", 222: "Э",
 }
 
-// ⚡ Вариант Б: МИКРО-ПАРСЕР IT-ПАТТЕРНОВ
-func isITPattern(wordEn string) bool {
-	// 1. snake_case (наличие нижнего подчеркивания)
-	if strings.Contains(wordEn, "_") {
+var fullEnToRu = map[rune]rune{
+	'q': 'й', 'w': 'ц', 'e': 'у', 'r': 'к', 't': 'е', 'y': 'н', 'u': 'г', 'i': 'ш', 'o': 'щ', 'p': 'з', '[': 'х', ']': 'ъ',
+	'a': 'ф', 's': 'ы', 'd': 'в', 'f': 'а', 'g': 'п', 'h': 'р', 'j': 'о', 'k': 'л', 'l': 'д', ';': 'ж', '\'': 'э',
+	'z': 'я', 'x': 'ч', 'c': 'с', 'v': 'м', 'b': 'и', 'n': 'т', 'm': 'ь', ',': 'б', '.': 'ю', '`': 'ё',
+	'Q': 'Й', 'W': 'Ц', 'E': 'У', 'R': 'К', 'T': 'Е', 'Y': 'Н', 'U': 'Г', 'I': 'Ш', 'O': 'Щ', 'P': 'З', '{': 'Х', '}': 'Ъ',
+	'A': 'Ф', 'S': 'Ы', 'D': 'В', 'F': 'А', 'G': 'П', 'H': 'Р', 'J': 'О', 'K': 'Л', 'L': 'Д', ':': 'Ж', '"': 'Э',
+	'Z': 'Я', 'X': 'Ч', 'C': 'С', 'V': 'М', 'B': 'И', 'N': 'Т', 'M': 'Ь', '<': 'Б', '>': 'Ю', '~': 'Ё',
+	'@': '"', '#': '№', '$': ';', '^': ':', '&': '?', '/': '.', '?': ',', '|': '/',
+}
+
+var fullRuToEn = map[rune]rune{
+	'й': 'q', 'ц': 'w', 'у': 'e', 'к': 'r', 'е': 't', 'н': 'y', 'г': 'u', 'ш': 'i', 'щ': 'o', 'з': 'p', 'х': '[', 'ъ': ']',
+	'ф': 'a', 'ы': 's', 'в': 'd', 'а': 'f', 'п': 'g', 'р': 'h', 'о': 'j', 'л': 'k', 'д': 'l', 'ж': ';', 'э': '\'',
+	'я': 'z', 'ч': 'x', 'с': 'c', 'м': 'v', 'и': 'b', 'т': 'n', 'ь': 'm', 'б': ',', 'ю': '.', 'ё': '`',
+	'Й': 'Q', 'Ц': 'W', 'У': 'E', 'К': 'R', 'Е': 'T', 'Н': 'Y', 'Г': 'U', 'Ш': 'I', 'Щ': 'O', 'З': 'P', 'Х': '{', 'Ъ': '}',
+	'Ф': 'A', 'Ы': 'S', 'В': 'D', 'А': 'F', 'П': 'G', 'Р': 'H', 'О': 'J', 'Л': 'K', 'Д': 'L', 'Ж': ':', 'Э': '"',
+	'Я': 'Z', 'Ч': 'X', 'С': 'C', 'М': 'V', 'И': 'B', 'Т': 'N', 'Ь': 'M', 'Б': '<', 'Ю': '>', 'Ё': '~',
+	'"': '@', '№': '#', ';': '$', ':': '^', '?': '&', ',': '?',
+}
+
+func convertSelectedLayout(text string) (string, bool) {
+	ruCount, enCount := 0, 0
+	for _, r := range text {
+		if unicode.Is(unicode.Cyrillic, r) {
+			ruCount++
+		} else if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			enCount++
+		}
+	}
+
+	toEn := ruCount >= enCount
+	var res strings.Builder
+	for _, r := range text {
+		if toEn {
+			if mapped, ok := fullRuToEn[r]; ok {
+				res.WriteRune(mapped)
+			} else if r == '.' {
+				res.WriteRune('/')
+			} else {
+				res.WriteRune(r)
+			}
+		} else {
+			if mapped, ok := fullEnToRu[r]; ok {
+				res.WriteRune(mapped)
+			} else {
+				res.WriteRune(r)
+			}
+		}
+	}
+	return res.String(), toEn
+}
+
+func getClipboardText() (string, bool) {
+	ret, _, _ := procOpenClipboard.Call(0)
+	if ret == 0 {
+		return "", false
+	}
+	defer procCloseClipboard.Call()
+
+	hMem, _, _ := procGetClipboardData.Call(CF_UNICODETEXT)
+	if hMem == 0 {
+		return "", false
+	}
+	ptr, _, _ := procGlobalLock.Call(hMem)
+	if ptr == 0 {
+		return "", false
+	}
+	defer procGlobalUnlock.Call(hMem)
+
+	return windows.UTF16PtrToString((*uint16)(unsafe.Pointer(ptr))), true
+}
+
+func setClipboardText(text string) bool {
+	utf16, err := windows.UTF16FromString(text)
+	if err != nil {
+		return false
+	}
+	size := uintptr(len(utf16) * 2)
+
+	hMem, _, _ := procGlobalAlloc.Call(GMEM_MOVEABLE, size)
+	if hMem == 0 {
+		return false
+	}
+	ptr, _, _ := procGlobalLock.Call(hMem)
+	if ptr == 0 {
+		return false
+	}
+	dst := unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(utf16))
+	copy(dst, utf16)
+	procGlobalUnlock.Call(hMem)
+
+	ret, _, _ := procOpenClipboard.Call(0)
+	if ret == 0 {
+		return false
+	}
+	defer procCloseClipboard.Call()
+
+	procEmptyClipboard.Call()
+	res, _, _ := procSetClipboardData.Call(CF_UNICODETEXT, hMem)
+	return res != 0
+}
+
+func clearClipboard() {
+	ret, _, _ := procOpenClipboard.Call(0)
+	if ret != 0 {
+		procEmptyClipboard.Call()
+		procCloseClipboard.Call()
+	}
+}
+
+func sendKeyCombo(vk uint16, keyUp bool) {
+	flags := uint32(0)
+	if keyUp {
+		flags = KEYEVENTF_KEYUP
+	}
+	input := INPUT{
+		Type: INPUT_KEYBOARD,
+		Ki: KEYBDINPUT{
+			WVk:     vk,
+			DwFlags: flags,
+		},
+	}
+	procSendInput.Call(1, uintptr(unsafe.Pointer(&input)), unsafe.Sizeof(input))
+}
+
+func releaseModifiers() {
+	sendKeyCombo(VK_SHIFT, true)
+	sendKeyCombo(VK_LSHIFT, true)
+	sendKeyCombo(VK_RSHIFT, true)
+	sendKeyCombo(VK_MENU, true)
+	sendKeyCombo(VK_LMENU, true)
+	sendKeyCombo(VK_RMENU, true)
+}
+
+func sendCtrlKey(vk uint16) {
+	releaseModifiers()
+	time.Sleep(10 * time.Millisecond)
+	sendKeyCombo(VK_CONTROL, false)
+	time.Sleep(5 * time.Millisecond)
+	sendKeyCombo(vk, false)
+	time.Sleep(5 * time.Millisecond)
+	sendKeyCombo(vk, true)
+	time.Sleep(5 * time.Millisecond)
+	sendKeyCombo(VK_CONTROL, true)
+}
+
+func tryTransformSelection(mode string) bool {
+	atomic.StoreUint32(&isReplacing, 1)
+	defer func() {
+		time.Sleep(30 * time.Millisecond)
+		atomic.StoreUint32(&isReplacing, 0)
+	}()
+
+	backupText, hadBackup := getClipboardText()
+	clearClipboard()
+
+	sendCtrlKey(0x43) // Ctrl + C
+	time.Sleep(65 * time.Millisecond)
+
+	selected, ok := getClipboardText()
+	if !ok || selected == "" {
+		if hadBackup {
+			setClipboardText(backupText)
+		}
+		return false
+	}
+
+	var transformed string
+	var switchedToEn bool
+	if mode == "layout" {
+		transformed, switchedToEn = convertSelectedLayout(selected)
+	} else {
+		transformed = cycleCase(selected)
+	}
+
+	if transformed == selected {
+		if hadBackup {
+			setClipboardText(backupText)
+		}
 		return true
 	}
 
-	// 2. kebab-case (дефис внутри слова, не с краю)
+	setClipboardText(transformed)
+	time.Sleep(15 * time.Millisecond)
+	sendCtrlKey(0x56) // Ctrl + V
+	time.Sleep(65 * time.Millisecond)
+
+	if mode == "layout" {
+		hwnd, _, _ := procGetForeground.Call()
+		if hwnd != 0 {
+			threadId, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
+			layoutId, _, _ := procGetKeyboardLayout.Call(threadId)
+			isRu := (layoutId & 0xFFFF) == 0x0419
+			if (isRu && switchedToEn) || (!isRu && !switchedToEn) {
+				switchLayout(hwnd)
+			}
+		}
+	}
+
+	if hadBackup {
+		setClipboardText(backupText)
+	} else {
+		clearClipboard()
+	}
+
+	currentWord = currentWord[:0]
+	lastWord = lastWord[:0]
+	lastRenderedWord = ""
+	return true
+}
+
+func getCharEn(vk uint32, shift bool) string {
+	char, ok := vkToEn[vk]
+	if !ok {
+		return ""
+	}
+	if shift {
+		if val, has := vkToEnShift[vk]; has {
+			return val
+		}
+		if vk >= 65 && vk <= 90 {
+			return strings.ToUpper(char)
+		}
+	}
+	return char
+}
+
+func isBoundaryEn(charEn string) bool {
+	return strings.ContainsAny(charEn, "\"'()[]{}<>=:;,!?%^&*|~+#")
+}
+
+func isITPattern(wordEn string) bool {
+	if strings.Contains(wordEn, "_") {
+		return true
+	}
 	if strings.Contains(wordEn, "-") {
 		parts := strings.Split(wordEn, "-")
 		if len(parts) > 1 && parts[0] != "" && parts[len(parts)-1] != "" {
 			return true
 		}
 	}
-
-	// 3. IP-адреса, версии, домены (наличие и цифр, и точек)
-	hasDigit := false
-	hasDot := false
+	hasDigit, hasDot := false, false
 	for _, r := range wordEn {
 		if r >= '0' && r <= '9' {
 			hasDigit = true
@@ -149,11 +394,7 @@ func isITPattern(wordEn string) bool {
 			hasDot = true
 		}
 	}
-	if hasDigit && hasDot {
-		return true
-	}
-
-	return false
+	return hasDigit && hasDot
 }
 
 func getProcessName(pid uint32) string {
@@ -162,7 +403,6 @@ func getProcessName(pid uint32) string {
 		return ""
 	}
 	defer procCloseHandle.Call(handle)
-
 	var size uint32 = 1024
 	buf := make([]uint16, size)
 	ret, _, _ := procQueryFullProcessImageName.Call(handle, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
@@ -185,6 +425,130 @@ func cleanWord(word string) string {
 		}
 	}
 	return res.String()
+}
+
+func fixInvertedCaps(word string) string {
+	runes := []rune(word)
+	if len(runes) < 2 {
+		return word
+	}
+	if unicode.IsLower(runes[0]) {
+		allRestUpper := true
+		hasLetters := false
+		for i := 1; i < len(runes); i++ {
+			if unicode.IsLetter(runes[i]) {
+				hasLetters = true
+				if !unicode.IsUpper(runes[i]) {
+					allRestUpper = false
+					break
+				}
+			}
+		}
+		if hasLetters && allRestUpper {
+			res := make([]rune, len(runes))
+			res[0] = unicode.ToUpper(runes[0])
+			for i := 1; i < len(runes); i++ {
+				res[i] = unicode.ToLower(runes[i])
+			}
+			return string(res)
+		}
+	}
+	return word
+}
+
+func cycleCase(text string) string {
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return text
+	}
+
+	isAllLower := true
+	isAllUpper := true
+	hasLetters := false
+
+	for _, r := range runes {
+		if unicode.IsLetter(r) {
+			hasLetters = true
+			if !unicode.IsLower(r) {
+				isAllLower = false
+			}
+			if !unicode.IsUpper(r) {
+				isAllUpper = false
+			}
+		}
+	}
+
+	if !hasLetters {
+		return text
+	}
+
+	if isAllLower {
+		return strings.ToUpper(text)
+	}
+	if isAllUpper {
+		res := []rune(strings.ToLower(text))
+		capitalizeNext := true
+		for i, r := range res {
+			if unicode.IsLetter(r) {
+				if capitalizeNext {
+					res[i] = unicode.ToUpper(r)
+					capitalizeNext = false
+				}
+			} else if unicode.IsSpace(r) || strings.ContainsRune("-_\"'([{", r) {
+				capitalizeNext = true
+			}
+		}
+		return string(res)
+	}
+	return strings.ToLower(text)
+}
+
+func buildWordStrings(events []KeyEvent) (wordEn string, wordRu string, hasUpper bool, hasLower bool, hasDigit bool, hasCapsLock bool) {
+	var enStr, ruStr strings.Builder
+	for i, ev := range events {
+		charEn := vkToEn[ev.VK]
+		charRu := vkToRu[ev.VK]
+		if ev.Caps {
+			hasCapsLock = true
+		}
+		if ev.Shift {
+			if val, ok := vkToEnShift[ev.VK]; ok {
+				charEn = val
+			}
+			if val, ok := vkToRuShift[ev.VK]; ok {
+				charRu = val
+			}
+		}
+		if ev.VK >= 48 && ev.VK <= 57 {
+			hasDigit = true
+		}
+		if ev.VK >= 65 && ev.VK <= 90 {
+			isUpper := ev.Shift != ev.Caps
+			if isUpper {
+				charEn = strings.ToUpper(charEn)
+				charRu = strings.ToUpper(charRu)
+				if i > 0 {
+					hasUpper = true
+				}
+			} else if i > 0 {
+				hasLower = true
+			}
+		} else {
+			switch ev.VK {
+			case 186, 188, 190, 192, 219, 221, 222:
+				if ev.Caps {
+					if ev.Shift {
+						charRu = strings.ToLower(charRu)
+					} else {
+						charRu = strings.ToUpper(charRu)
+					}
+				}
+			}
+		}
+		enStr.WriteString(charEn)
+		ruStr.WriteString(charRu)
+	}
+	return enStr.String(), ruStr.String(), hasUpper, hasLower, hasDigit, hasCapsLock
 }
 
 func startHook() {
@@ -247,15 +611,12 @@ func simulateBackspace() {
 func switchLayout(hwnd uintptr) {
 	threadId, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
 	currentHkl, _, _ := procGetKeyboardLayout.Call(threadId)
-
 	count, _, _ := procGetKeyboardLayoutList.Call(0, 0)
 	if count <= 1 {
 		return
 	}
-
 	hkls := make([]uintptr, count)
 	procGetKeyboardLayoutList.Call(count, uintptr(unsafe.Pointer(&hkls[0])))
-
 	var nextHkl uintptr
 	for i, h := range hkls {
 		if h == currentHkl {
@@ -266,11 +627,13 @@ func switchLayout(hwnd uintptr) {
 	if nextHkl == 0 {
 		nextHkl = hkls[0]
 	}
-
 	procPostMessage.Call(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, nextHkl)
 }
 
 func replaceText(deletions int, replacement string, appendChar string, switchLang bool) {
+	lastRenderedWord = replacement
+	lastRenderedSuffix = appendChar
+
 	atomic.StoreUint32(&isReplacing, 1)
 	defer func() {
 		time.Sleep(20 * time.Millisecond)
@@ -278,10 +641,9 @@ func replaceText(deletions int, replacement string, appendChar string, switchLan
 	}()
 
 	time.Sleep(15 * time.Millisecond)
-
 	totalDel := deletions
 	if appendChar != "" {
-		totalDel++
+		totalDel += len([]rune(appendChar))
 	}
 	for i := 0; i < totalDel; i++ {
 		simulateBackspace()
@@ -298,6 +660,48 @@ func replaceText(deletions int, replacement string, appendChar string, switchLan
 			switchLayout(hwnd)
 		}
 	}
+}
+
+func handleCaseToggle() {
+	if tryTransformSelection("case") {
+		return
+	}
+
+	hwnd, _, _ := procGetForeground.Call()
+	threadId, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
+	layoutId, _, _ := procGetKeyboardLayout.Call(threadId)
+	isRu := (layoutId & 0xFFFF) == 0x0419
+
+	if len(currentWord) > 0 {
+		wordEn, wordRu, _, _, _, _ := buildWordStrings(currentWord)
+		target := wordEn
+		if isRu {
+			target = wordRu
+		}
+		deletions := len([]rune(target))
+		cycled := cycleCase(target)
+
+		lastWord = make([]KeyEvent, len(currentWord))
+		copy(lastWord, currentWord)
+		typedSpaceAfterLastWord = false
+		currentWord = currentWord[:0]
+
+		replaceText(deletions, cycled, "", false)
+		return
+	}
+
+	if lastRenderedWord != "" {
+		deletions := len([]rune(lastRenderedWord))
+		cycled := cycleCase(lastRenderedWord)
+		replaceText(deletions, cycled, lastRenderedSuffix, false)
+	}
+}
+
+func handleManualLayoutSwitch() {
+	if tryTransformSelection("layout") {
+		return
+	}
+	processWord("", true)
 }
 
 func learnException(word string) {
@@ -347,21 +751,33 @@ func learnForceConvert(word string) {
 	go saveSettings(newSettings)
 }
 
-func getHotkeyVK(hotkeyStr string) uint32 {
-	switch strings.ToLower(strings.TrimSpace(hotkeyStr)) {
-	case "pause":
-		return 0x13
-	case "f12":
-		return 0x7B
-	case "f9":
-		return 0x78
-	case "f8":
-		return 0x77
-	case "scrolllock":
-		return 0x91
-	default:
-		return 0x13
+func parseHotkey(hotkeyStr string) (vk uint32, needShift bool, needAlt bool) {
+	s := strings.ToLower(strings.TrimSpace(hotkeyStr))
+	if strings.Contains(s, "shift+") {
+		needShift = true
+		s = strings.ReplaceAll(s, "shift+", "")
 	}
+	if strings.Contains(s, "alt+") {
+		needAlt = true
+		s = strings.ReplaceAll(s, "alt+", "")
+	}
+	switch s {
+	case "pause":
+		vk = 0x13
+	case "f12":
+		vk = 0x7B
+	case "f9":
+		vk = 0x78
+	case "f8":
+		vk = 0x77
+	case "scrolllock":
+		vk = 0x91
+	case "capslock":
+		vk = 0x14
+	default:
+		vk = 0x13
+	}
+	return
 }
 
 func processLiveTypo() {
@@ -376,52 +792,7 @@ func processLiveTypo() {
 		return
 	}
 
-	var enStr, ruStr strings.Builder
-	var hasUpper, hasLower, hasDigit bool
-
-	for i, ev := range currentWord {
-		charEn := vkToEn[ev.VK]
-		charRu := vkToRu[ev.VK]
-
-		if ev.Shift {
-			if val, ok := vkToEnShift[ev.VK]; ok {
-				charEn = val
-			}
-			if val, ok := vkToRuShift[ev.VK]; ok {
-				charRu = val
-			}
-		}
-		if ev.VK >= 48 && ev.VK <= 57 {
-			hasDigit = true
-		}
-		if ev.VK >= 65 && ev.VK <= 90 {
-			isUpper := ev.Shift != ev.Caps
-			if isUpper {
-				charEn = strings.ToUpper(charEn)
-				charRu = strings.ToUpper(charRu)
-				if i > 0 {
-					hasUpper = true
-				}
-			} else if i > 0 {
-				hasLower = true
-			}
-		} else {
-			switch ev.VK {
-			case 186, 188, 190, 192, 219, 221, 222:
-				if ev.Caps {
-					if ev.Shift {
-						charRu = strings.ToLower(charRu)
-					} else {
-						charRu = strings.ToUpper(charRu)
-					}
-				}
-			}
-		}
-		enStr.WriteString(charEn)
-		ruStr.WriteString(charRu)
-	}
-
-	wordEn, wordRu := enStr.String(), ruStr.String()
+	wordEn, wordRu, hasUpper, hasLower, hasDigit, hasCapsLock := buildWordStrings(currentWord)
 	wLowerEn, wLowerRu := strings.ToLower(wordEn), strings.ToLower(wordRu)
 	cEn, cRu := cleanWord(wordEn), cleanWord(wordRu)
 
@@ -441,7 +812,6 @@ func processLiveTypo() {
 	isRu := (layoutId & 0xFFFF) == 0x0419
 	deletions := len(currentWord)
 
-	// ⚡ ВНЕДРЕНИЕ Варианта Б (LiveTypo): Отлов IT-паттернов на лету
 	if isITPattern(wordEn) {
 		if isRu {
 			lastFinalLang = "en"
@@ -454,7 +824,7 @@ func processLiveTypo() {
 		}
 	}
 
-	if hasDigit || (hasUpper && hasLower) {
+	if hasDigit || (hasUpper && hasLower && !hasCapsLock) {
 		return
 	}
 
@@ -476,33 +846,49 @@ func processLiveTypo() {
 
 	if isRu {
 		if IsHardTypo(cRu, true, false) && !IsHardTypo(cEn, false, false) {
+			finalEn := wordEn
+			if hasCapsLock {
+				finalEn = fixInvertedCaps(finalEn)
+			}
 			lastAutoCorrection = &CorrectionData{
 				OriginalFull:  wordRu,
 				OriginalClean: cRu,
-				Corrected:     wordEn,
+				PhysicalEn:    wLowerEn,
+				Corrected:     finalEn,
 				AppendChar:    "",
+				SwitchedLang:  true,
 				Timestamp:     time.Now(),
 			}
+			incrementLayoutCorrection(len([]rune(cRu)))
+			recordHeatmapError(wLowerEn)
 			backspaceCount = 0
 			currentWord = currentWord[:0]
 			lastWord = lastWord[:0]
 			lastFinalLang = "en"
-			go replaceText(deletions, wordEn, "", true)
+			go replaceText(deletions, finalEn, "", true)
 		}
 	} else {
 		if IsHardTypo(cEn, false, false) && !IsHardTypo(cRu, true, false) {
+			finalRu := wordRu
+			if hasCapsLock {
+				finalRu = fixInvertedCaps(finalRu)
+			}
 			lastAutoCorrection = &CorrectionData{
 				OriginalFull:  wordEn,
 				OriginalClean: cEn,
-				Corrected:     wordRu,
+				PhysicalEn:    wLowerEn,
+				Corrected:     finalRu,
 				AppendChar:    "",
+				SwitchedLang:  true,
 				Timestamp:     time.Now(),
 			}
+			incrementLayoutCorrection(len([]rune(cEn)))
+			recordHeatmapError(wLowerEn)
 			backspaceCount = 0
 			currentWord = currentWord[:0]
 			lastWord = lastWord[:0]
 			lastFinalLang = "ru"
-			go replaceText(deletions, wordRu, "", true)
+			go replaceText(deletions, finalRu, "", true)
 		}
 	}
 }
@@ -560,58 +946,22 @@ func processWord(appendChar string, isManual bool) {
 		}
 	}
 
-	var enStr, ruStr strings.Builder
-	var hasUpper, hasLower bool
-	var hasDigit bool
-
-	for i, ev := range wordData {
-		charEn := vkToEn[ev.VK]
-		charRu := vkToRu[ev.VK]
-
-		if ev.Shift {
-			if val, ok := vkToEnShift[ev.VK]; ok {
-				charEn = val
-			}
-			if val, ok := vkToRuShift[ev.VK]; ok {
-				charRu = val
-			}
-		}
-
-		if ev.VK >= 48 && ev.VK <= 57 {
-			hasDigit = true
-		}
-
-		if ev.VK >= 65 && ev.VK <= 90 {
-			isUpper := ev.Shift != ev.Caps
-			if isUpper {
-				charEn = strings.ToUpper(charEn)
-				charRu = strings.ToUpper(charRu)
-				if i > 0 {
-					hasUpper = true
-				}
-			} else if i > 0 {
-				hasLower = true
-			}
-		} else {
-			switch ev.VK {
-			case 186, 188, 190, 192, 219, 221, 222:
-				if ev.Caps {
-					if ev.Shift {
-						charRu = strings.ToLower(charRu)
-					} else {
-						charRu = strings.ToUpper(charRu)
-					}
-				}
-			}
-		}
-		enStr.WriteString(charEn)
-		ruStr.WriteString(charRu)
-	}
-	wordEn, wordRu := enStr.String(), ruStr.String()
-
+	wordEn, wordRu, hasUpper, hasLower, hasDigit, hasCapsLock := buildWordStrings(wordData)
 	wLowerEn, wLowerRu := strings.ToLower(wordEn), strings.ToLower(wordRu)
 	cEn := cleanWord(wordEn)
 	cRu := cleanWord(wordRu)
+
+	hwnd, _, _ := procGetForeground.Call()
+	threadId, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
+	layoutId, _, _ := procGetKeyboardLayout.Call(threadId)
+	isRu := (layoutId & 0xFFFF) == 0x0419
+
+	if isRu {
+		lastRenderedWord = wordRu
+	} else {
+		lastRenderedWord = wordEn
+	}
+	lastRenderedSuffix = appendChar
 
 	for _, excLine := range strings.Split(exceptions, "\n") {
 		excLine = strings.TrimSpace(excLine)
@@ -622,11 +972,6 @@ func processWord(appendChar string, isManual bool) {
 			return
 		}
 	}
-
-	hwnd, _, _ := procGetForeground.Call()
-	threadId, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
-	layoutId, _, _ := procGetKeyboardLayout.Call(threadId)
-	isRu := (layoutId & 0xFFFF) == 0x0419
 
 	if isManual {
 		if isRu {
@@ -650,10 +995,14 @@ func processWord(appendChar string, isManual bool) {
 			lastAutoCorrection = &CorrectionData{
 				OriginalFull:  wordEn,
 				OriginalClean: cEn,
+				PhysicalEn:    wLowerEn,
 				Corrected:     wordRu,
 				AppendChar:    appendChar,
+				SwitchedLang:  true,
 				Timestamp:     time.Now(),
 			}
+			incrementLayoutCorrection(len([]rune(cEn)))
+			recordHeatmapError(wLowerEn)
 			backspaceCount = 0
 			lastFinalLang = "ru"
 			go replaceText(deletions, wordRu, appendChar, true)
@@ -663,10 +1012,14 @@ func processWord(appendChar string, isManual bool) {
 			lastAutoCorrection = &CorrectionData{
 				OriginalFull:  wordRu,
 				OriginalClean: cRu,
+				PhysicalEn:    wLowerEn,
 				Corrected:     wordEn,
 				AppendChar:    appendChar,
+				SwitchedLang:  true,
 				Timestamp:     time.Now(),
 			}
+			incrementLayoutCorrection(len([]rune(cRu)))
+			recordHeatmapError(wLowerEn)
 			backspaceCount = 0
 			lastFinalLang = "en"
 			go replaceText(deletions, wordEn, appendChar, true)
@@ -674,22 +1027,23 @@ func processWord(appendChar string, isManual bool) {
 		}
 	}
 
-	// ⚡ ВНЕДРЕНИЕ Варианта Б: Отлов IT-паттернов по нажатию пробела
 	if isITPattern(wordEn) {
 		if isRu {
 			lastFinalLang = "en"
 			lastAutoCorrection = &CorrectionData{
 				OriginalFull:  wordRu,
 				OriginalClean: cRu,
+				PhysicalEn:    wLowerEn,
 				Corrected:     wordEn,
 				AppendChar:    appendChar,
+				SwitchedLang:  true,
 				Timestamp:     time.Now(),
 			}
+			incrementLayoutCorrection(len([]rune(cRu)))
 			backspaceCount = 0
 			go replaceText(deletions, wordEn, appendChar, true)
 			return
 		} else {
-			// Если уже английский - блокируем перевод на русский
 			lastFinalLang = "en"
 			return
 		}
@@ -699,7 +1053,7 @@ func processWord(appendChar string, isManual bool) {
 		if hasDigit {
 			return
 		}
-		if hasUpper && hasLower {
+		if hasUpper && hasLower && !hasCapsLock {
 			return
 		}
 	}
@@ -712,17 +1066,19 @@ func processWord(appendChar string, isManual bool) {
 		firstVK := wordData[0].VK
 		isFlag := firstVK == 189
 		isPath := firstVK == 220 || firstVK == 191
-
 		if (isFlag && blockFlags) || (isPath && blockPaths) {
 			if isRu {
 				lastFinalLang = "en"
 				lastAutoCorrection = &CorrectionData{
 					OriginalFull:  wordRu,
 					OriginalClean: cRu,
+					PhysicalEn:    wLowerEn,
 					Corrected:     wordEn,
 					AppendChar:    appendChar,
+					SwitchedLang:  true,
 					Timestamp:     time.Now(),
 				}
+				incrementLayoutCorrection(len([]rune(cRu)))
 				backspaceCount = 0
 				go replaceText(deletions, wordEn, appendChar, true)
 				return
@@ -742,35 +1098,90 @@ func processWord(appendChar string, isManual bool) {
 		}
 	}
 
+	if len(cEn) >= 3 {
+		dist := CalcAverageJump(wLowerEn)
+		visualWord := cEn
+		if isRu {
+			visualWord = cRu
+		}
+		addTopoRecord(visualWord, dist)
+	}
+
 	if isRu {
 		if ShouldConvertWord(cRu, cEn, "ru", adjustedThreshold) {
+			finalEn := wordEn
+			if hasCapsLock {
+				finalEn = fixInvertedCaps(finalEn)
+			}
+			correctedEn, _ := ApplyAutoCorrect(finalEn, "en")
 			lastAutoCorrection = &CorrectionData{
 				OriginalFull:  wordRu,
 				OriginalClean: cRu,
-				Corrected:     wordEn,
+				PhysicalEn:    wLowerEn,
+				Corrected:     correctedEn,
 				AppendChar:    appendChar,
+				SwitchedLang:  true,
 				Timestamp:     time.Now(),
 			}
+			incrementLayoutCorrection(len([]rune(cRu)))
+			recordHeatmapError(wLowerEn)
 			backspaceCount = 0
 			lastFinalLang = "en"
-			go replaceText(deletions, wordEn, appendChar, true)
+			go replaceText(deletions, correctedEn, appendChar, true)
 		} else {
 			lastFinalLang = "ru"
+			if correctedRu, changed := ApplyAutoCorrect(wordRu, "ru"); changed {
+				lastAutoCorrection = &CorrectionData{
+					OriginalFull:  wordRu,
+					OriginalClean: cRu,
+					PhysicalEn:    wLowerEn,
+					Corrected:     correctedRu,
+					AppendChar:    appendChar,
+					SwitchedLang:  false,
+					Timestamp:     time.Now(),
+				}
+				incrementTypoCorrection(len([]rune(cRu)))
+				backspaceCount = 0
+				go replaceText(deletions, correctedRu, appendChar, false)
+			}
 		}
 	} else {
 		if ShouldConvertWord(cEn, cRu, "en", adjustedThreshold) {
+			finalRu := wordRu
+			if hasCapsLock {
+				finalRu = fixInvertedCaps(finalRu)
+			}
+			correctedRu, _ := ApplyAutoCorrect(finalRu, "ru")
 			lastAutoCorrection = &CorrectionData{
 				OriginalFull:  wordEn,
 				OriginalClean: cEn,
-				Corrected:     wordRu,
+				PhysicalEn:    wLowerEn,
+				Corrected:     correctedRu,
 				AppendChar:    appendChar,
+				SwitchedLang:  true,
 				Timestamp:     time.Now(),
 			}
+			incrementLayoutCorrection(len([]rune(cEn)))
+			recordHeatmapError(wLowerEn)
 			backspaceCount = 0
 			lastFinalLang = "ru"
-			go replaceText(deletions, wordRu, appendChar, true)
+			go replaceText(deletions, correctedRu, appendChar, true)
 		} else {
 			lastFinalLang = "en"
+			if correctedEn, changed := ApplyAutoCorrect(wordEn, "en"); changed {
+				lastAutoCorrection = &CorrectionData{
+					OriginalFull:  wordEn,
+					OriginalClean: cEn,
+					PhysicalEn:    wLowerEn,
+					Corrected:     correctedEn,
+					AppendChar:    appendChar,
+					SwitchedLang:  false,
+					Timestamp:     time.Now(),
+				}
+				incrementTypoCorrection(len([]rune(cEn)))
+				backspaceCount = 0
+				go replaceText(deletions, correctedEn, appendChar, false)
+			}
 		}
 	}
 }
@@ -789,11 +1200,10 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 		vk := kbd.VkCode
 
 		if wParam == WM_KEYUP || wParam == WM_SYSKEYUP {
-			if vk == VK_SHIFT || vk == 0xA0 || vk == 0xA1 {
+			if vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT {
 				shiftReleased = true
 			}
 		} else if wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN {
-
 			hwnd, _, _ := procGetForeground.Call()
 			var pid uint32
 			procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
@@ -802,6 +1212,7 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 				if lastPid != 0 {
 					currentWord = currentWord[:0]
 					lastWord = lastWord[:0]
+					lastRenderedWord = ""
 				}
 				lastProcessName = getProcessName(pid)
 				lastPid = pid
@@ -825,15 +1236,19 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 				return ret
 			}
 
-			if vk == VK_SHIFT || vk == 0xA0 || vk == 0xA1 {
+			if vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT {
 				if shiftReleased {
 					now := time.Now()
 					if now.Sub(lastShiftTime) < 400*time.Millisecond {
 						if lastAutoCorrection != nil && time.Since(lastAutoCorrection.Timestamp) < 15*time.Second {
 							deletions := len([]rune(lastAutoCorrection.Corrected))
-							go replaceText(deletions, lastAutoCorrection.OriginalFull, lastAutoCorrection.AppendChar, true)
+							go replaceText(deletions, lastAutoCorrection.OriginalFull, lastAutoCorrection.AppendChar, lastAutoCorrection.SwitchedLang)
 							learnException(lastAutoCorrection.OriginalClean)
 
+							if lastAutoCorrection.SwitchedLang {
+								revertHeatmapError(lastAutoCorrection.PhysicalEn)
+							}
+							incrementUndoCount(len([]rune(lastAutoCorrection.OriginalClean)), lastAutoCorrection.SwitchedLang)
 							lastAutoCorrection = nil
 						}
 						lastShiftTime = time.Time{}
@@ -851,9 +1266,12 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 				if lastAutoCorrection != nil && time.Since(lastAutoCorrection.Timestamp) < 15*time.Second {
 					backspaceCount++
 					targetLen := len([]rune(lastAutoCorrection.Corrected)) + len([]rune(lastAutoCorrection.AppendChar))
-
 					if backspaceCount >= targetLen {
 						learnException(lastAutoCorrection.OriginalClean)
+						if lastAutoCorrection.SwitchedLang {
+							revertHeatmapError(lastAutoCorrection.PhysicalEn)
+						}
+						incrementUndoCount(len([]rune(lastAutoCorrection.OriginalClean)), lastAutoCorrection.SwitchedLang)
 						lastAutoCorrection = nil
 						backspaceCount = 0
 					}
@@ -863,7 +1281,8 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 			}
 
 			settingsMutex.RLock()
-			targetHotkeyVK := getHotkeyVK(settings.Hotkey)
+			targetHotkeyVK, targetNeedShift, targetNeedAlt := parseHotkey(settings.Hotkey)
+			caseHotkeyVK, caseNeedShift, caseNeedAlt := parseHotkey(settings.CaseHotkey)
 			liveTypoEnabled := settings.LiveTypoEnabled
 			liveTypoChar := settings.LiveTypoChar
 			settingsMutex.RUnlock()
@@ -872,31 +1291,52 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 				liveTypoChar = 4
 			}
 
-			if vk == targetHotkeyVK {
-				processWord("", true)
-			} else if vk == VK_SPACE || vk == VK_RETURN {
-				app := " "
-				if vk == VK_RETURN {
-					app = "\n"
-				}
-				processWord(app, false)
+			shiftState, _, _ := procGetKeyState.Call(uintptr(VK_SHIFT))
+			altState, _, _ := procGetKeyState.Call(uintptr(VK_MENU))
+			ctrlState, _, _ := procGetKeyState.Call(uintptr(VK_CONTROL))
+			isShift := (shiftState & 0x8000) != 0
+			isAlt := (altState & 0x8000) != 0
+			isCtrl := (ctrlState & 0x8000) != 0
+
+			if isCtrl && vk != targetHotkeyVK && vk != caseHotkeyVK {
+				ret, _, _ := procCallNextHookEx.Call(keyboardHook, uintptr(nCode), wParam, lParam)
+				return ret
+			}
+
+			charEn := getCharEn(vk, isShift)
+
+			if vk == caseHotkeyVK && isShift == caseNeedShift && isAlt == caseNeedAlt {
+				go handleCaseToggle()
+				return 1
+			}
+
+			if vk == targetHotkeyVK && isShift == targetNeedShift && isAlt == targetNeedAlt {
+				go handleManualLayoutSwitch()
+				return 1
+			}
+
+			if vk == VK_SPACE {
+				processWord(" ", false)
+			} else if vk == VK_RETURN {
+				processWord("\n", false)
+			} else if vk == VK_TAB {
+				processWord("\t", false)
 			} else if vk == VK_BACK {
 				if len(currentWord) > 0 {
 					currentWord = currentWord[:len(currentWord)-1]
 				} else {
 					lastWord = lastWord[:0]
+					lastRenderedWord = ""
 				}
-			} else if _, ok := vkToEn[vk]; ok {
-				if len(currentWord) < 64 {
-					shiftState, _, _ := procGetKeyState.Call(uintptr(VK_SHIFT))
-					capsState, _, _ := procGetKeyState.Call(uintptr(VK_CAPITAL))
-					isShift := (shiftState & 0x8000) != 0
-					isCaps := (capsState & 0x0001) != 0
-					currentWord = append(currentWord, KeyEvent{VK: vk, Shift: isShift, Caps: isCaps})
+			} else if charEn != "" && isBoundaryEn(charEn) {
+				processWord(charEn, false)
+			} else if charEn != "" {
+				capsState, _, _ := procGetKeyState.Call(uintptr(VK_CAPITAL))
+				isCaps := (capsState & 0x0001) != 0
+				currentWord = append(currentWord, KeyEvent{VK: vk, Shift: isShift, Caps: isCaps})
 
-					if liveTypoEnabled && len(currentWord) >= liveTypoChar {
-						processLiveTypo()
-					}
+				if liveTypoEnabled && len(currentWord) >= liveTypoChar {
+					processLiveTypo()
 				}
 			} else if !isModifier(vk) {
 				currentWord = currentWord[:0]
