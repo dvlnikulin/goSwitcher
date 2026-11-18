@@ -116,15 +116,16 @@ jobs:
           [ -f "words_ru.txt" ] && cp words_ru.txt /tmp/pkg/goswitcher-${VERSION}/
           [ -f "words_en.txt" ] && cp words_en.txt /tmp/pkg/goswitcher-${VERSION}/
 
-          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          tar -czf ~/rpmbuild/SOURCES/goswitcher-${VERSION}.tar.gz -C /tmp/pkg goswitcher-${VERSION}
-          cp goswitcher.spec ~/rpmbuild/SPECS/
+          # Используем стандартные системные пути openSUSE для rpmbuild
+          mkdir -p /usr/src/packages/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          tar -czf /usr/src/packages/SOURCES/goswitcher-${VERSION}.tar.gz -C /tmp/pkg goswitcher-${VERSION}
+          cp goswitcher.spec /usr/src/packages/SPECS/
 
       - name: Build RPM package
         run: |
-          rpmbuild -ba ~/rpmbuild/SPECS/goswitcher.spec
+          rpmbuild -ba /usr/src/packages/SPECS/goswitcher.spec
           mkdir -p release-linux
-          cp ~/rpmbuild/RPMS/x86_64/*.rpm release-linux/
+          cp /usr/src/packages/RPMS/x86_64/*.rpm release-linux/
 
       - name: Upload Linux RPM Artifacts
         uses: actions/upload-artifact@v4
