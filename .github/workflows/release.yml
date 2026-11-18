@@ -111,7 +111,7 @@ jobs:
           sed -i "s/^Version:.*/Version:        ${VERSION}/" goswitcher.spec
 
           mkdir -p /tmp/pkg/goswitcher-${VERSION}
-          cp -r main.go ai.go hook_linux.go platform_linux.go go.mod go.sum vendor web icon.ico /tmp/pkg/goswitcher-${VERSION}/
+          cp -r *.go go.mod go.sum vendor web icon.ico /tmp/pkg/goswitcher-${VERSION}/
           [ -f "model.json" ] && cp model.json /tmp/pkg/goswitcher-${VERSION}/
           [ -f "words_ru.txt" ] && cp words_ru.txt /tmp/pkg/goswitcher-${VERSION}/
           [ -f "words_en.txt" ] && cp words_en.txt /tmp/pkg/goswitcher-${VERSION}/

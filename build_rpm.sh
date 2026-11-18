@@ -22,7 +22,7 @@ if [ ! -f "model.json" ] && [ -f "words_ru.txt" ] && [ -f "words_en.txt" ]; then
 fi
 
 mkdir -p "${BUILD_ROOT}/${NAME}-${VERSION}"
-cp -r main.go ai.go hook_linux.go platform_linux.go go.mod go.sum vendor web icon.ico "${BUILD_ROOT}/${NAME}-${VERSION}/"
+cp -r *.go go.mod go.sum vendor web icon.ico "${BUILD_ROOT}/${NAME}-${VERSION}/"
 [ -f "model.json" ] && cp model.json "${BUILD_ROOT}/${NAME}-${VERSION}/"
 [ -f "words_ru.txt" ] && cp words_ru.txt "${BUILD_ROOT}/${NAME}-${VERSION}/"
 [ -f "words_en.txt" ] && cp words_en.txt "${BUILD_ROOT}/${NAME}-${VERSION}/"
