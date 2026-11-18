@@ -6,14 +6,10 @@ import (
 	"flag"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
-	"unsafe"
 
 	"github.com/getlantern/systray"
-	"golang.org/x/sys/windows/registry"
 )
 
 //go:embed web/index.html
@@ -26,7 +22,7 @@ type AppSettings struct {
 	EnableAI        bool   `json:"enable_ai"`
 	Threshold       int    `json:"threshold"`
 	Hotkey          string `json:"hotkey"`
-	CaseHotkey      string `json:"case_hotkey"` // ⚡ Хоткей смены регистра
+	CaseHotkey      string `json:"case_hotkey"`
 	Exceptions      string `json:"exceptions"`
 	ForceConvert    string `json:"force_convert"`
 	Blacklist       string `json:"blacklist"`
@@ -64,16 +60,6 @@ var (
 	heatmapMutex  sync.RWMutex
 )
 
-func enforceSingleInstance() {
-	kernel32 := syscall.NewLazyDLL("kernel32.dll")
-	procCreateMutex := kernel32.NewProc("CreateMutexW")
-	mutexName, _ := syscall.UTF16PtrFromString("GoSwitcher_Unique_Mutex")
-	handle, _, err := procCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
-	if handle == 0 || err == syscall.Errno(183) {
-		os.Exit(0)
-	}
-}
-
 func getAppDir() string {
 	exePath, _ := os.Executable()
 	return filepath.Dir(exePath)
@@ -89,7 +75,7 @@ func loadSettings() {
 		CaseHotkey:      "shift+pause",
 		Exceptions:      "",
 		ForceConvert:    "",
-		Blacklist:       "zed.exe\ncode.exe\nwindowsterminal.exe\nwinbox.exe\nvmware.exe\nvirtualbox.exe\ngenshinimpact.exe\nbg3.exe\nbg3_dx11.exe",
+		Blacklist:       defaultBlacklist(),
 		Autostart:       false,
 		CustomVocab:     "kubectl\nmikrotik\nrouteros\nwinbox\nansible\ndocker\nnginx",
 		BlockPaths:      true,
@@ -114,16 +100,7 @@ func saveSettings(newSettings AppSettings) {
 	data, _ := json.MarshalIndent(settings, "", "  ")
 	os.WriteFile(filepath.Join(getAppDir(), "settings.json"), data, 0644)
 
-	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.ALL_ACCESS)
-	if err == nil {
-		defer k.Close()
-		exe, _ := os.Executable()
-		if newSettings.Autostart {
-			k.SetStringValue("GoSwitcher", `"`+exe+`"`)
-		} else {
-			k.DeleteValue("GoSwitcher")
-		}
-	}
+	setSystemAutostart(newSettings.Autostart)
 }
 
 func loadStats() {
@@ -351,7 +328,7 @@ func onReady() {
 		for {
 			select {
 			case <-mSettings.ClickedCh:
-				exec.Command("rundll32", "url.dll,FileProtocolHandler", "http://127.0.0.1:8765").Start()
+				openBrowser("http://127.0.0.1:8765")
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 			}
