@@ -325,42 +325,6 @@ func learnForceConvert(word string) {
 	go saveSettings(newSettings)
 }
 
-func isPureEnglish(word string) bool {
-	// Проверяет, что слово состоит ТОЛЬКО из английских букв (a-z, A-Z)
-	// без цифр, знаков препинания и других символов
-	for _, r := range word {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
-			return false
-		}
-	}
-	return len(word) > 0
-}
-
-func isEnglishWord(wordEn, wordRu string) bool {
-	// Проверяет, что слово является валидным английским словом
-	// а не русской опечаткой в английской раскладке
-	if len(wordEn) < 2 {
-		return false
-	}
-	// Если слово содержит только латиницу и есть в KnownWords — это английский
-	if isPureEnglish(wordEn) && currentModel != nil && currentModel.KnownWords != nil {
-		wLowerEn := strings.ToLower(wordEn)
-		if currentModel.KnownWords[wLowerEn] {
-			return true
-		}
-		// Если слово состоит из известных коротких английских слов
-		if len(wLowerEn) <= 4 && forceEnShort[wLowerEn] {
-			return true
-		}
-		// Проверка по score модели
-		score := scoreInLang(wLowerEn, "en")
-		if score > 0.7 {
-			return true
-		}
-	}
-	return false
-}
-
 func processLiveTypo() {
 	settingsMutex.RLock()
 	aiEnabled := settings.EnableAI
@@ -414,11 +378,6 @@ func processLiveTypo() {
 	}
 
 	if isRu {
-		// ⚡ Пропускаем английские слова — не переключаем "hello" на "фщщщщ"
-		if isEnglishWord(wordEn, wordRu) {
-			lastFinalLang = "en"
-			return
-		}
 		if IsHardTypo(cRu, true, false) && !IsHardTypo(cEn, false, false) {
 			finalEn := wordEn
 			if hasCapsLock {
@@ -533,12 +492,6 @@ func processWord(appendChar string, isManual bool) {
 		if wLowerEn == excLine || wLowerRu == excLine || cEn == excLine || cRu == excLine {
 			return
 		}
-	}
-
-	// ⚡ Пропускаем английские слова — не переключаем "hello" на "фщщщщ"
-	if !isManual && isEnglishWord(wordEn, wordRu) {
-		lastFinalLang = "en"
-		return
 	}
 
 	if isManual {
