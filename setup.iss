@@ -1,6 +1,6 @@
 ; Скрипт инсталлятора для GoSwitcher
 #define MyAppName "GoSwitcher"
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.4.11"
 #define MyAppPublisher "NikoDim"
 #define MyAppExeName "GoSwitcher.exe"
 

@@ -4,10 +4,12 @@ import (
 	"embed"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/getlantern/systray"
 )
@@ -58,7 +60,14 @@ var (
 	topoMutex     sync.RWMutex
 	keyHeatmap    map[string]int
 	heatmapMutex  sync.RWMutex
+
+	// Debounce timers для предотвращения бесконечного роста goroutines
+	statsDebounceTimer *time.Timer
+	heatmapDebounceTimer *time.Timer
 )
+
+const statsDebounceDelay = 500 * time.Millisecond
+const heatmapDebounceDelay = 1 * time.Second
 
 func getAppDir() string {
 	exePath, _ := os.Executable()
@@ -95,10 +104,16 @@ func loadSettings() {
 func saveSettings(newSettings AppSettings) {
 	settingsMutex.Lock()
 	settings = newSettings
+	data, err := json.MarshalIndent(settings, "", "  ")
 	settingsMutex.Unlock()
 
-	data, _ := json.MarshalIndent(settings, "", "  ")
-	os.WriteFile(filepath.Join(getAppDir(), "settings.json"), data, 0644)
+	if err != nil {
+		fmt.Printf("[saveSettings] Ошибка сериализации: %v\n", err)
+		return
+	}
+	if err := os.WriteFile(filepath.Join(getAppDir(), "settings.json"), data, 0644); err != nil {
+		fmt.Printf("[saveSettings] Ошибка записи настроек: %v\n", err)
+	}
 
 	setSystemAutostart(newSettings.Autostart)
 }
@@ -114,7 +129,18 @@ func saveStats() {
 	statsMutex.RLock()
 	data, _ := json.MarshalIndent(stats, "", "  ")
 	statsMutex.RUnlock()
-	os.WriteFile(filepath.Join(getAppDir(), "stats.json"), data, 0644)
+	if err := os.WriteFile(filepath.Join(getAppDir(), "stats.json"), data, 0644); err != nil {
+		fmt.Printf("[saveStats] Ошибка записи статистики: %v\n", err)
+	}
+}
+
+func saveStatsDebounced() {
+	statsDebounceTimer.Stop()
+	statsDebounceTimer.Reset(statsDebounceDelay)
+	go func() {
+		<-statsDebounceTimer.C
+		saveStats()
+	}()
 }
 
 func loadHeatmap() {
@@ -129,7 +155,18 @@ func saveHeatmap() {
 	heatmapMutex.RLock()
 	data, _ := json.MarshalIndent(keyHeatmap, "", "  ")
 	heatmapMutex.RUnlock()
-	os.WriteFile(filepath.Join(getAppDir(), "heatmap.json"), data, 0644)
+	if err := os.WriteFile(filepath.Join(getAppDir(), "heatmap.json"), data, 0644); err != nil {
+		fmt.Printf("[saveHeatmap] Ошибка записи heatmap: %v\n", err)
+	}
+}
+
+func saveHeatmapDebounced() {
+	heatmapDebounceTimer.Stop()
+	heatmapDebounceTimer.Reset(heatmapDebounceDelay)
+	go func() {
+		<-heatmapDebounceTimer.C
+		saveHeatmap()
+	}()
 }
 
 func recordHeatmapError(physicalWordEn string) {
@@ -146,7 +183,7 @@ func recordHeatmapError(physicalWordEn string) {
 		}
 	}
 	heatmapMutex.Unlock()
-	go saveHeatmap()
+	saveHeatmapDebounced()
 }
 
 func revertHeatmapError(physicalWordEn string) {
@@ -163,7 +200,7 @@ func revertHeatmapError(physicalWordEn string) {
 		}
 	}
 	heatmapMutex.Unlock()
-	go saveHeatmap()
+	saveHeatmapDebounced()
 }
 
 func incrementLayoutCorrection(wordLength int) {
@@ -171,7 +208,7 @@ func incrementLayoutCorrection(wordLength int) {
 	stats.LayoutCorrections++
 	stats.SavedKeystrokes += wordLength * 2
 	statsMutex.Unlock()
-	go saveStats()
+	saveStatsDebounced()
 }
 
 func incrementTypoCorrection(wordLength int) {
@@ -179,7 +216,7 @@ func incrementTypoCorrection(wordLength int) {
 	stats.TypoCorrections++
 	stats.SavedKeystrokes += wordLength
 	statsMutex.Unlock()
-	go saveStats()
+	saveStatsDebounced()
 }
 
 func incrementUndoCount(wordLength int, switchedLang bool) {
@@ -199,7 +236,7 @@ func incrementUndoCount(wordLength int, switchedLang bool) {
 		stats.TypoCorrections--
 	}
 	statsMutex.Unlock()
-	go saveStats()
+	saveStatsDebounced()
 }
 
 func addTopoRecord(word string, dist float64) {
@@ -225,6 +262,9 @@ func main() {
 	loadStats()
 	loadHeatmap()
 	loadModel()
+
+	statsDebounceTimer = time.NewTimer(statsDebounceDelay)
+	heatmapDebounceTimer = time.NewTimer(heatmapDebounceDelay)
 
 	go startWebServer()
 	go startHook()
@@ -308,8 +348,27 @@ func startWebServer() {
 			heatmapMutex.Lock()
 			keyHeatmap = make(map[string]int)
 			heatmapMutex.Unlock()
-			go saveHeatmap()
+			saveHeatmapDebounced()
 			w.WriteHeader(http.StatusOK)
+		}
+	})
+
+	http.HandleFunc("/api/test_mode", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"test_mode": IsTestMode()})
+		case http.MethodPost:
+			var req struct {
+				Enabled bool `json:"enabled"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			SetTestMode(req.Enabled)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"test_mode": req.Enabled})
 		}
 	})
 
@@ -337,5 +396,7 @@ func onReady() {
 }
 
 func onExit() {
-	os.Exit(0)
+	// Graceful shutdown хука (для Linux)
+	stopHook()
+	systray.Quit()
 }

@@ -134,6 +134,10 @@ var (
 	lMetaDown, rMetaDown   bool
 	capsLockState          bool
 	shiftReleased          bool = true
+
+	// Механизм graceful shutdown для горутин хука
+	hookQuit chan struct{}
+	hookKeys int32 // атомарный счётчик активных горутин хука
 )
 
 var evToEn = map[uint16]string{
@@ -499,6 +503,10 @@ func isModifierLinux(code uint16) bool {
 // --- ЯДРО ХУКА (ПЕРЕДАЧА В ENGINE) ---
 
 func handleLinuxKeyEvent(ev linuxInputEvent) {
+	// ⚡ Пропускаем все события в тестовом режиме
+	if ev.Type == EV_KEY && IsTestMode() {
+		return
+	}
 	if ev.Type != EV_KEY || atomic.LoadUint32(&isReplacing) == 1 {
 		return
 	}
@@ -671,13 +679,18 @@ func findKeyboards() []string {
 }
 
 func startHook() {
+	if hookQuit == nil {
+		hookQuit = make(chan struct{})
+	}
 	if err := initUinput(); err != nil {
 		fmt.Printf("[Linux Hook] Ошибка uinput: %v\n", err)
 		return
 	}
 	keyboards := findKeyboards()
 	for _, devPath := range keyboards {
+		atomic.AddInt32(&hookKeys, 1)
 		go func(path string) {
+			defer atomic.AddInt32(&hookKeys, -1)
 			fd, err := syscall.Open(path, syscall.O_RDONLY, 0)
 			if err != nil {
 				return
@@ -688,15 +701,40 @@ func startHook() {
 			for {
 				n, err := syscall.Read(fd, buf)
 				if err != nil || n < evSize {
-					time.Sleep(100 * time.Millisecond)
-					continue
+					select {
+					case <-hookQuit:
+						return
+					case <-time.After(100 * time.Millisecond):
+						continue
+					}
 				}
 				for offset := 0; offset+evSize <= n; offset += evSize {
+					select {
+					case <-hookQuit:
+						return
+					default:
+					}
 					var ev linuxInputEvent
 					binary.Read(bytes.NewReader(buf[offset:offset+evSize]), binary.LittleEndian, &ev)
 					handleLinuxKeyEvent(ev)
 				}
 			}
 		}(devPath)
+	}
+}
+
+// stopHook останавливает все горутины хука и закрает дескрипторы
+func stopHook() {
+	if hookQuit != nil {
+		close(hookQuit)
+	}
+	// Ждём завершения всех горутин хука
+	for atomic.LoadInt32(&hookKeys) > 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Закрываем uinputFd
+	if uinputFd >= 0 {
+		syscall.Close(uinputFd)
+		uinputFd = -1
 	}
 }

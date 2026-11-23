@@ -31,4 +31,5 @@ $RECYCLE.BIN/
 # Файлы IDE (VS Code, Zed, etc)
 .vscode/
 .idea/
+.gocache/
 *.swp

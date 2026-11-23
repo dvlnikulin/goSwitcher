@@ -379,6 +379,11 @@ func startHook() {
 }
 
 func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
+	// ⚡ Пропускаем все события в тестовом режиме
+	if nCode >= 0 && IsTestMode() {
+		ret, _, _ := procCallNextHookEx.Call(keyboardHook, uintptr(nCode), wParam, lParam)
+		return ret
+	}
 	if nCode >= 0 && atomic.LoadUint32(&isReplacing) == 0 {
 		kbd := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
 		vk := kbd.VkCode
@@ -491,4 +496,12 @@ func hookCallback(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	}
 	ret, _, _ := procCallNextHookEx.Call(keyboardHook, uintptr(nCode), wParam, lParam)
 	return ret
+}
+
+// stopHook — заглушка для Windows (нет активных goroutine хука для остановки)
+func stopHook() {
+	if keyboardHook != 0 {
+		user32.NewProc("UnhookWindowsHookEx").Call(keyboardHook)
+		keyboardHook = 0
+	}
 }

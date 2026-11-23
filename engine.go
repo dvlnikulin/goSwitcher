@@ -27,6 +27,9 @@ type CorrectionData struct {
 var (
 	currentWord             []KeyEventCore
 	isReplacing             uint32
+	// isTestMode — переключает свитчер в режим только для E2E-тестов.
+	// Когда установлен в 1, свитчер пропускает все нажатия без обработки.
+	isTestMode              uint32
 	lastWord                []KeyEventCore
 	typedSpaceAfterLastWord bool
 	lastRenderedWord        string
@@ -36,6 +39,21 @@ var (
 	lastShiftTime           time.Time
 	lastFinalLang           string = "en"
 )
+
+// SetTestMode включает/выключает тестовый режим.
+// В тестовом режиме свитчер пропускает все нажатия без обработки.
+func SetTestMode(on bool) {
+	if on {
+		atomic.StoreUint32(&isTestMode, 1)
+	} else {
+		atomic.StoreUint32(&isTestMode, 0)
+	}
+}
+
+// IsTestMode возвращает текущее состояние тестового режима.
+func IsTestMode() bool {
+	return atomic.LoadUint32(&isTestMode) == 1
+}
 
 func buildWordStrings(events []KeyEventCore) (string, string, bool, bool, bool, bool) {
 	var enStr, ruStr strings.Builder
